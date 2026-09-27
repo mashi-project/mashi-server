@@ -4,10 +4,10 @@
 import kotlinx.coroutines.sync.Semaphore
 
 // GIF
-const val GIF_WIDTH = 552 * 1.75
-const val GIF_HEIGHT = 736 * 1.75
-const val GIF_TRAIT_WIDTH = 380 * 1.75
-const val GIF_TRAIT_HEIGHT = 600 * 1.75
+const val GIF_WIDTH = (552 * 1.75).toInt()
+const val GIF_HEIGHT = (736 * 1.75).toInt()
+const val GIF_TRAIT_WIDTH = (380 * 1.75).toInt()
+const val GIF_TRAIT_HEIGHT = (600 * 1.75).toInt()
 const val PLAYBACK_FPS = 15
 const val DURATION_LIMIT_SEC = 6.66
 
