@@ -31,66 +31,25 @@ fun isImageAnimated(bytes: ByteArray): ImageAnimationResult {
  * without misinterpreting pixel/palette bytes or stopping on size limits.
  */
 private fun isAnimatedGif(bytes: ByteArray): Boolean {
-    // 1. Validate Header ('GIF87a' or 'GIF89a')
-    if (bytes.size < 13) return false
-    val isGifHeader = bytes[0] == 'G'.code.toByte() &&
+    // Check GIF header (GIF87a or GIF89a)
+    val isGifHeader = bytes.size >= 6 &&
+            bytes[0] == 'G'.code.toByte() &&
             bytes[1] == 'I'.code.toByte() &&
             bytes[2] == 'F'.code.toByte() &&
             bytes[3] == '8'.code.toByte() &&
-            (bytes[4] == '7'.code.toByte() || bytes[4] == '9'.code.toByte()) &&
+            (bytes[4] == '7'.code.toByte() || bytes[4] == '9'.code.toByte()) && // Supports 87a and 89a
             bytes[5] == 'a'.code.toByte()
 
     if (!isGifHeader) return false
 
-    // 2. Read Logical Screen Descriptor
-    val packedFields = bytes[10].toInt() and 0xFF
-    val hasGlobalColorTable = (packedFields and 0x80) != 0
-    val globalColorTableSize = 1 shl ((packedFields and 0x07) + 1)
-
-    // 3. Skip Header (13 bytes) + Global Color Table
-    var offset = 13
-    if (hasGlobalColorTable) {
-        offset += 3 * globalColorTableSize
-    }
-
+    // Count Image Separator blocks (0x2C marked before frame data)
     var frameCount = 0
+    val searchLimit = minOf(bytes.size, 1024 * 64) // Search up to first 64KB
 
-    // 4. Traverse GIF Blocks directly
-    while (offset < bytes.size) {
-        val blockType = bytes[offset].toInt() and 0xFF
-
-        when (blockType) {
-            0x2C -> { // Image Descriptor (Frame Header)
-                frameCount++
-                if (frameCount > 1) return true // Multiple frames confirmed
-
-                // Skip Image Descriptor fixed payload (10 bytes)
-                if (offset + 10 >= bytes.size) return false
-                val localPacked = bytes[offset + 9].toInt() and 0xFF
-                val hasLocalColorTable = (localPacked and 0x80) != 0
-                val localColorTableSize = 1 shl ((localPacked and 0x07) + 1)
-
-                offset += 10
-                if (hasLocalColorTable) {
-                    offset += 3 * localColorTableSize
-                }
-
-                // Skip LZW Minimum Code Size byte
-                offset++
-
-                // Skip compressed pixel data sub-blocks
-                offset = skipSubBlocks(bytes, offset)
-            }
-            0x21 -> { // Extension Block (Graphic Control, Metadata, etc.)
-                offset += 2
-                offset = skipSubBlocks(bytes, offset)
-            }
-            0x3B -> { // GIF Trailer (End of file)
-                break
-            }
-            else -> { // Malformed data or unknown block
-                break
-            }
+    for (i in 6 until searchLimit) {
+        if (bytes[i] == 0x2C.toByte()) { // ',' character (0x2C)
+            frameCount++
+            if (frameCount > 1) return true // Found 2 or more frames
         }
     }
 
