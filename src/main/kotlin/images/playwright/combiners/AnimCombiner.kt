@@ -15,8 +15,8 @@ import kotlin.io.path.absolutePathString
 
 class AnimCombiner : KoinComponent {
 
-    suspend fun generateAnim(tempDir: Path, t: Double, isLowerRes: Boolean = false): Path {
-        val targetDurationSec = DURATION_LIMIT_SEC.toDouble()
+    suspend fun generateAnim(tempDir: Path, isLowerRes: Boolean = false): Path {
+        val targetDurationSec = DURATION_LIMIT_SEC
         val width = if (isLowerRes) LOWER_RES_GIF_WIDTH else GIF_WIDTH
         val height = if (isLowerRes) LOWER_RES_GIF_HEIGHT else GIF_HEIGHT
 

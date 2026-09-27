@@ -105,9 +105,8 @@ class ImageRepo : KoinComponent {
                 writeFile(filePath, fileContent)
             }
 
-            val maxT = getMaxDuration(traits)
             val isLowerRes = downloadType == DownloadType.SMALLER_GIF
-            val gifPath: Path = animCombiner.generateAnim(uniqueDir, maxT, isLowerRes)
+            val gifPath: Path = animCombiner.generateAnim(uniqueDir, isLowerRes)
 
             // Read into byte array BEFORE rmDir destroys the file
             val bytes = readFile(gifPath)
