@@ -40,20 +40,7 @@ private fun isAnimatedGif(bytes: ByteArray): Boolean {
             (bytes[4] == '7'.code.toByte() || bytes[4] == '9'.code.toByte()) && // Supports 87a and 89a
             bytes[5] == 'a'.code.toByte()
 
-    if (!isGifHeader) return false
-
-    // Count Image Separator blocks (0x2C marked before frame data)
-    var frameCount = 0
-    val searchLimit = minOf(bytes.size, 1024 * 64) // Search up to first 64KB
-
-    for (i in 6 until searchLimit) {
-        if (bytes[i] == 0x2C.toByte()) { // ',' character (0x2C)
-            frameCount++
-            if (frameCount > 1) return true // Found 2 or more frames
-        }
-    }
-
-    return false
+    return isGifHeader
 }
 
 /**
