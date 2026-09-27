@@ -88,8 +88,15 @@ class MashupModule(private val kord: Kord) : KoinComponent {
             val filename = "composite$ext"
 
             // 2. Fetch the assembled data bytes safely
-            val (bytes, size) = imageService.requestCompositeData(wallet, downloadType = downloadType)
+            var data = imageService.requestCompositeData(wallet, downloadType = downloadType)
                 ?: throw IllegalStateException("Failed to generate composite image data")
+
+            if (data.second > 8 * 1024 * 1024 && downloadType == DownloadType.GIF) {
+                data = imageService.requestCompositeData(wallet, downloadType = DownloadType.SMALLER_GIF)
+                    ?: throw IllegalStateException("Failed to generate composite image data")
+            }
+
+            val (bytes, size) = data
 
             // Supplying ByteReadChannel(bytes) inside the lambda allows Kord/Ktor
             // to re-read the channel if needed without premature stream closing
