@@ -2,12 +2,12 @@
 
 import com.mashiverse.configs.LAYER_ORDER
 import com.mashiverse.data.db.daos.ImageDao
-import com.mashiverse.data.models.Asset
-import com.mashiverse.data.models.Colors
-import com.mashiverse.data.models.ImageType
-import com.mashiverse.data.models.Mashup
+import com.mashiverse.data.models.*
 import com.mashiverse.data.remote.apis.IpfsApi
-import com.mashiverse.images.helpers.*
+import com.mashiverse.images.helpers.SvgCorrector
+import com.mashiverse.images.helpers.convertToWebp
+import com.mashiverse.images.helpers.getImageType
+import com.mashiverse.images.helpers.replaceColors
 import com.mashiverse.images.playwright.combiners.AnimCombiner
 import com.mashiverse.images.playwright.combiners.CompositeCombiner
 import com.mashiverse.utils.helpers.readFile
@@ -31,44 +31,54 @@ class ImageRepo : KoinComponent {
     private val imageDao by inject<ImageDao>()
     private val ipfsApi by inject<IpfsApi>()
 
-    suspend fun getAsset(asset: Asset, colors: Colors): Pair<String, ByteArray>? {
+    suspend fun getAsset(asset: Asset, colors: Colors): ImageDetails {
         return withContext(Dispatchers.IO) {
             try {
                 val name = asset.name.lowercase()
                 val url = asset.image
+                val imageId = url.split("/").last()
 
-                var data = imageDao.getImage(url)
+                var data = imageDao.getImage(imageId)
                 if (data == null) {
-                    data = ipfsApi.getImageSrc(url) ?: return@withContext null
+                    data = ipfsApi.getImageSrc(url) ?: return@withContext ImageDetails(imageType = ImageType.UNKNOWN)
                     val imageType = getImageType(data)
-                    if (imageType != ImageType.UNKNOWN) {
-                        imageDao.addImage(url, data)
+
+                    var newData: ByteArray? = null
+                    var newImageType: ImageType? = null
+
+                    if (imageType != ImageType.SVG && imageType != ImageType.UNKNOWN) {
+                        newData = convertToWebp(data, imageType)
+                        newImageType = ImageType.WEBP
+                    }
+
+                    if (imageType == ImageType.GIF) {
+                        newData = SvgCorrector.processSvg(data)
+                        newImageType = ImageType.GIF
+                    }
+
+                    if (newData != null && newImageType != null) {
+                        imageDao.addImage(imageId, newData, newImageType)
                     }
                 }
 
-                val imageType = getImageType(data)
+                val imageType = imageDao.getImageType(imageId) ?: throw Exception("Image type $imageId not found")
                 if (imageType == ImageType.SVG) {
                     data = replaceColors(
                         data = data, body = colors.base, eyes = colors.eyes, hair = colors.hair
                     )
                 }
-                Pair(name, data)
+
+                ImageDetails(name = name, data = data, imageType = imageType)
             } catch (e: Exception) {
                 System.err.println("Failed to fetch asset: ${e.message}")
-                null
+                ImageDetails(imageType = ImageType.UNKNOWN)
             }
         }
     }
 
-    /**
-     * Prepares composite data directly.
-     * PNG is rendered completely in-memory.
-     * GIF reads final output into memory before rmDir deletes the temp workspace.
-     */
     suspend fun getImageData(
         mashup: Mashup,
-        downloadType: DownloadType = DownloadType.PNG,
-        mintedName: String? = null
+        downloadType: DownloadType = DownloadType.PNG
     ): Pair<ByteArray, Long>? = withContext(Dispatchers.IO) {
         val assets = mashup.traits
         val colors = mashup.colors
@@ -76,14 +86,17 @@ class ImageRepo : KoinComponent {
         if (assets.isEmpty()) return@withContext null
 
         val assetJobs = assets.map { asset -> async { getAsset(asset, colors) } }
-        val srcs = assetJobs.awaitAll().filterNotNull().toMap()
+        val images = assetJobs.awaitAll().filter { it.imageType != ImageType.UNKNOWN }
 
-        val traits = LAYER_ORDER.mapNotNull { name -> srcs[name] }.toMutableList()
-        if (!mintedName.isNullOrEmpty()) {
-            traits.add(getMintedTrait(mintedName))
+        val traits = LAYER_ORDER.map { name -> images.first { it.name == name }.data }.toMutableList()
+
+        val imagesWithMime = traits.map { bytes ->
+            val image = images.first { it.data.contentEquals(bytes) }
+            image.copy(mimeType = image.mimeType)
         }
 
-        val traitsWithMime = traits.map { bytes -> Pair(getMime(bytes), bytes) }
+        val traitsWithMime =
+            imagesWithMime.filter { it.mimeType != null && it.data != null }.map { it.mimeType!! to it.data!! }.toList()
 
         // 1. PNG: In-memory pipeline, zero disk writes
         if (downloadType == DownloadType.PNG) {
@@ -122,8 +135,7 @@ class ImageRepo : KoinComponent {
     suspend fun getImage(
         mashup: Mashup,
         downloadType: DownloadType = DownloadType.PNG,
-        mintedName: String? = null
     ): ByteArray? {
-        return getImageData(mashup, downloadType, mintedName)?.first
+        return getImageData(mashup, downloadType)?.first
     }
 }

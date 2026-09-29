@@ -115,11 +115,14 @@ class AnimCombiner : KoinComponent {
         val baseFilter =
             "fps=$PLAYBACK_FPS,scale=$width:$height:flags=neighbor:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2,setsar=1"
 
+        // Updated filter graph:
+// 1. stats_mode=full ensures consistent color palette across loop boundary
+// 2. dither=sierra2_4a or bayer with lower scale prevents patterned shimmering
+// 3. diff_mode=rectangle prevents ghosting artifacts
         val filterGraph = "[0:v]$baseFilter,split[stream][paletteSource];" +
-                "[paletteSource]palettegen=max_colors=256:stats_mode=diff[palette];" +
-                "[stream][palette]paletteuse=dither=bayer:bayer_scale=3:diff_mode=none"
+                "[paletteSource]palettegen=max_colors=256:stats_mode=full[palette];" +
+                "[stream][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle"
 
-        // Input-side accurate seek (-ss before -i) skips discarded initial frames immediately
         executeCmd(
             "ffmpeg",
             "-y",
@@ -131,10 +134,12 @@ class AnimCombiner : KoinComponent {
             gifPath.absolutePathString()
         )
 
+// Add --loopcount=0 to Gifsicle to explicitly mark smooth infinite looping
         executeCmd(
             "gifsicle",
             "-b",
             "-O2",
+            "--loopcount=0",
             "--no-comments",
             "--no-names",
             "--no-extensions",

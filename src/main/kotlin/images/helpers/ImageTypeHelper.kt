@@ -3,19 +3,16 @@
 import com.mashiverse.data.models.ImageType
 import com.mashiverse.utils.helpers.indexOfSequence
 
-fun getMime(data: ByteArray): String {
+fun getMime(imageType: ImageType): String {
     return try {
-        val imageType = getImageType(data)
-
         when (imageType) {
             ImageType.SVG -> "image/svg+xml"
             ImageType.WEBP -> "image/webp"
-            ImageType.GIF -> "image/gif"
-            else -> "image/png"
+            else -> ""
         }
     } catch (e: Exception) {
         println(e)
-        "image/png"
+        "image/webp"
     }
 }
 

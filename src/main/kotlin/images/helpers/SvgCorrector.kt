@@ -1,5 +1,6 @@
-﻿package com.mashiverse.images.converters
+﻿package com.mashiverse.images.helpers
 
+import nu.pattern.OpenCV
 import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.MatOfByte
@@ -16,38 +17,10 @@ import javax.xml.transform.TransformerFactory
 import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.stream.StreamResult
 
-object SvgProcessor {
+object SvgCorrector {
 
     init {
-        // Initialize OpenCV binaries automatically for JVM
-        nu.pattern.OpenCV.loadLocally()
-    }
-
-    // Helper to extract properties checking attributes, inline styles, and CSS classes
-    private fun extractProperty(element: Element, attrName: String, cssMap: Map<String, String>): String {
-        val directAttr = element.getAttribute(attrName)
-        if (directAttr.isNotEmpty()) return directAttr
-
-        val styleAttr = element.getAttribute("style")
-        if (styleAttr.isNotEmpty()) {
-            val regex = Regex("$attrName\\s*:\\s*([^;]+)")
-            val match = regex.find(styleAttr)
-            if (match != null) return match.groupValues[1].trim()
-        }
-
-        val classAttr = element.getAttribute("class")
-        if (classAttr.isNotEmpty()) {
-            val classes = classAttr.split("\\s+".toRegex())
-            for (className in classes) {
-                val rules = cssMap[className]
-                if (rules != null) {
-                    val regex = Regex("$attrName\\s*:\\s*([^;]+)")
-                    val match = regex.find(rules)
-                    if (match != null) return match.groupValues[1].trim()
-                }
-            }
-        }
-        return ""
+        OpenCV.loadLocally()
     }
 
     fun processSvg(inputBytes: ByteArray): ByteArray {

@@ -23,7 +23,6 @@ class ImageService : KoinComponent {
         wallet: String? = null,
         mashup: Mashup? = null,
         downloadType: DownloadType,
-        mintedName: String? = null
     ): Pair<ByteArray, Long>? {
         return withContext(Dispatchers.IO) {
             try {
@@ -37,7 +36,6 @@ class ImageService : KoinComponent {
                     imageRepo.getImageData(
                         mashup = input,
                         downloadType = downloadType,
-                        mintedName = mintedName
                     )
                 }
             } catch (e: Exception) {
@@ -53,9 +51,8 @@ class ImageService : KoinComponent {
     suspend fun requestComposite(
         wallet: String? = null,
         mashup: Mashup? = null,
-        downloadType: DownloadType,
-        mintedName: String? = null
+        downloadType: DownloadType
     ): ByteArray? {
-        return requestCompositeData(wallet, mashup, downloadType, mintedName)?.first
+        return requestCompositeData(wallet, mashup, downloadType)?.first
     }
 }

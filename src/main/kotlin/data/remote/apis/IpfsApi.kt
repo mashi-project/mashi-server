@@ -23,7 +23,6 @@ class IpfsApi : KoinComponent {
                 }
 
                 if (response.status == HttpStatusCode.NotFound) {
-                    // Break out of the inner retry loop to try the next URL immediately
                     break
                 }
 
