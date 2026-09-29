@@ -4,10 +4,9 @@ import com.mashiverse.data.db.PostgresManager
 import data.db.entities.HistoryRecord
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.sql.Timestamp
 import java.time.Instant
 import java.util.UUID
-
-
 
 class HistoryDao {
 
@@ -34,7 +33,7 @@ class HistoryDao {
                 stmt.setObject(1, id)
                 stmt.setString(2, wallet)
                 stmt.setBytes(3, image)
-                stmt.setObject(4, timestamp)
+                stmt.setTimestamp(4, Timestamp.from(timestamp))
                 stmt.executeUpdate()
                 conn.commit()
             }
@@ -51,7 +50,7 @@ class HistoryDao {
                             id = rs.getObject("id", UUID::class.java),
                             wallet = rs.getString("wallet"),
                             image = rs.getBytes("image"),
-                            timestamp = rs.getObject("timestamp", Instant::class.java)
+                            timestamp = rs.getTimestamp("timestamp")?.toInstant() ?: Instant.now()
                         )
                     } else null
                 }
@@ -71,7 +70,7 @@ class HistoryDao {
                                 id = rs.getObject("id", UUID::class.java),
                                 wallet = rs.getString("wallet"),
                                 image = rs.getBytes("image"),
-                                timestamp = rs.getObject("timestamp", Instant::class.java)
+                                timestamp = rs.getTimestamp("timestamp")?.toInstant() ?: Instant.now()
                             )
                         )
                     }
@@ -95,7 +94,7 @@ class HistoryDao {
                                 id = rs.getObject("id", UUID::class.java),
                                 wallet = rs.getString("wallet"),
                                 image = rs.getBytes("image"),
-                                timestamp = rs.getObject("timestamp", Instant::class.java)
+                                timestamp = rs.getTimestamp("timestamp")?.toInstant() ?: Instant.now()
                             )
                         )
                     }

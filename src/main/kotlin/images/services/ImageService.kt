@@ -36,6 +36,7 @@ class ImageService : KoinComponent {
                     imageRepo.getImageData(
                         mashup = input,
                         downloadType = downloadType,
+                        wallet = wallet
                     )
                 }
             } catch (e: Exception) {

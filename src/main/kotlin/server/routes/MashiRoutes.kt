@@ -12,11 +12,13 @@ import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.serialization.Serializable
 import org.koin.ktor.ext.inject
 import java.util.*
 
+@Serializable
 data class HistoryItemResponse(
-    val id: UUID,
+    val id: String, // Changed to String to serialize safely
     val wallet: String,
     val imageUrl: String,
     val timestamp: String
@@ -57,10 +59,10 @@ fun Application.mashiRoutes() {
 
                 val historyList = historyDao.getHistoryByWalletPaginated(wallet, limit, offset)
 
-                // Map records to response objects containing the image link
+                // Map records to response objects containing the image link and string ID
                 val response = historyList.map { record ->
                     HistoryItemResponse(
-                        id = record.id,
+                        id = record.id.toString(),
                         wallet = record.wallet,
                         imageUrl = "/api/mashi/app/history/image/${record.id}",
                         timestamp = record.timestamp.toString()

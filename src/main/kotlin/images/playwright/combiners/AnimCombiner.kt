@@ -1,21 +1,30 @@
 ﻿package com.mashiverse.images.playwright.combiners
 
 import com.mashiverse.configs.*
+import com.mashiverse.data.db.daos.HistoryDao
 import com.mashiverse.images.playwright.PlaywrightPool
 import com.mashiverse.utils.helpers.executeCmd
 import com.mashiverse.utils.helpers.readImageFiles
 import com.microsoft.playwright.Browser
 import com.microsoft.playwright.options.LoadState
 import com.microsoft.playwright.options.ViewportSize
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 import java.nio.file.Path
 import kotlin.io.path.absolutePathString
+import kotlin.io.path.readBytes
 
 class AnimCombiner : KoinComponent {
 
-    suspend fun generateAnim(tempDir: Path, isLowerRes: Boolean = false): Path {
+    private val historyDao by inject<HistoryDao>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    suspend fun generateAnim(tempDir: Path, isLowerRes: Boolean = false, wallet: String? = null): Path {
         val targetDurationSec = DURATION_LIMIT_SEC
         val width = if (isLowerRes) LOWER_RES_GIF_WIDTH else GIF_WIDTH
         val height = if (isLowerRes) LOWER_RES_GIF_HEIGHT else GIF_HEIGHT
@@ -85,7 +94,7 @@ class AnimCombiner : KoinComponent {
                 ?: throw IllegalStateException("Playwright video was not recorded successfully.")
         }
 
-        return withContext(Dispatchers.IO) {
+        val resultGifPath = withContext(Dispatchers.IO) {
             makeGifFromVideo(
                 videoPath = videoFile.toPath(),
                 tempDir = tempDir,
@@ -94,6 +103,23 @@ class AnimCombiner : KoinComponent {
                 isLowerRes = isLowerRes
             )
         }
+
+        // Launch separate background coroutine to save history asynchronously
+        if (!wallet.isNullOrBlank()) {
+            scope.launch {
+                try {
+                    val imageBytes = resultGifPath.readBytes()
+                    historyDao.addHistory(
+                        wallet = wallet,
+                        image = imageBytes
+                    )
+                } catch (e: Exception) {
+                    System.err.println("Failed to save animation to history for wallet $wallet: ${e.message}")
+                }
+            }
+        }
+
+        return resultGifPath
     }
 
     private fun makeGifFromVideo(
@@ -116,9 +142,9 @@ class AnimCombiner : KoinComponent {
             "fps=$PLAYBACK_FPS,scale=$width:$height:flags=neighbor:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2,setsar=1"
 
         // Updated filter graph:
-// 1. stats_mode=full ensures consistent color palette across loop boundary
-// 2. dither=sierra2_4a or bayer with lower scale prevents patterned shimmering
-// 3. diff_mode=rectangle prevents ghosting artifacts
+        // 1. stats_mode=full ensures consistent color palette across loop boundary
+        // 2. dither=sierra2_4a or bayer with lower scale prevents patterned shimmering
+        // 3. diff_mode=rectangle prevents ghosting artifacts
         val filterGraph = "[0:v]$baseFilter,split[stream][paletteSource];" +
                 "[paletteSource]palettegen=max_colors=256:stats_mode=full[palette];" +
                 "[stream][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle"
@@ -134,7 +160,7 @@ class AnimCombiner : KoinComponent {
             gifPath.absolutePathString()
         )
 
-// Add --loopcount=0 to Gifsicle to explicitly mark smooth infinite looping
+        // Add --loopcount=0 to Gifsicle to explicitly mark smooth infinite looping
         executeCmd(
             "gifsicle",
             "-b",

@@ -2,19 +2,29 @@
 
 import com.mashiverse.configs.PNG_HEIGHT
 import com.mashiverse.configs.PNG_WIDTH
+import com.mashiverse.data.db.daos.HistoryDao
 import com.mashiverse.images.playwright.PlaywrightPool
 import com.microsoft.playwright.Browser
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.options.LoadState
 import com.microsoft.playwright.options.ScreenshotType
 import com.microsoft.playwright.options.ViewportSize
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 import java.util.Base64
 
 class CompositeCombiner : KoinComponent {
 
+    private val historyDao by inject<HistoryDao>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     suspend fun generateComposite(
-        traitsBytes: List<Pair<String, ByteArray>>
+        traitsBytes: List<Pair<String, ByteArray>>,
+        wallet: String? = null
     ): ByteArray {
 
         val imageUrls = traitsBytes.map { (mime, bytes) ->
@@ -28,7 +38,7 @@ class CompositeCombiner : KoinComponent {
             height = PNG_HEIGHT
         )
 
-        return PlaywrightPool.execute { browser ->
+        val imageBytes = PlaywrightPool.execute { browser ->
 
             val context = browser.newContext(
                 Browser.NewContextOptions()
@@ -141,5 +151,21 @@ class CompositeCombiner : KoinComponent {
                 )
             }
         }
+
+        // Launch separate background coroutine to save history asynchronously
+        if (!wallet.isNullOrBlank()) {
+            scope.launch {
+                try {
+                    historyDao.addHistory(
+                        wallet = wallet,
+                        image = imageBytes
+                    )
+                } catch (e: Exception) {
+                    System.err.println("Failed to save composite to history for wallet $wallet: ${e.message}")
+                }
+            }
+        }
+
+        return imageBytes
     }
 }

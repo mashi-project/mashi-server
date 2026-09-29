@@ -95,7 +95,8 @@ class ImageRepo : KoinComponent {
 
     suspend fun getImageData(
         mashup: Mashup,
-        downloadType: DownloadType = DownloadType.PNG
+        downloadType: DownloadType = DownloadType.PNG,
+        wallet: String? = null,
     ): Pair<ByteArray, Long>? = withContext(Dispatchers.IO) {
         val assets = mashup.traits
         val colors = mashup.colors
@@ -122,7 +123,7 @@ class ImageRepo : KoinComponent {
 
         // 1. PNG: In-memory pipeline, zero disk writes
         if (downloadType == DownloadType.PNG) {
-            val bytes = compositeCombiner.generateComposite(traitsWithMime)
+            val bytes = compositeCombiner.generateComposite(traitsWithMime, wallet = wallet)
             return@withContext Pair(bytes, bytes.size.toLong())
         }
 
@@ -141,7 +142,7 @@ class ImageRepo : KoinComponent {
             }
 
             val isLowerRes = downloadType == DownloadType.SMALLER_GIF
-            val gifPath: Path = animCombiner.generateAnim(uniqueDir, isLowerRes)
+            val gifPath: Path = animCombiner.generateAnim(uniqueDir, isLowerRes, wallet = wallet)
 
             // Read into byte array BEFORE rmDir destroys the file
             val bytes = readFile(gifPath)
