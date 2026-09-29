@@ -7,6 +7,7 @@ import com.mashiverse.data.remote.apis.IpfsApi
 import com.mashiverse.images.helpers.SvgCorrector
 import com.mashiverse.images.helpers.convertToWebp
 import com.mashiverse.images.helpers.getImageType
+import com.mashiverse.images.helpers.getMime
 import com.mashiverse.images.helpers.replaceColors
 import com.mashiverse.images.playwright.combiners.AnimCombiner
 import com.mashiverse.images.playwright.combiners.CompositeCombiner
@@ -33,44 +34,60 @@ class ImageRepo : KoinComponent {
 
     suspend fun getAsset(asset: Asset, colors: Colors): ImageDetails {
         return withContext(Dispatchers.IO) {
+            val name = asset.name.lowercase()
+            val url = asset.image
             try {
-                val name = asset.name.lowercase()
-                val url = asset.image
                 val imageId = url.split("/").last()
 
                 var data = imageDao.getImage(imageId)
-                if (data == null) {
-                    data = ipfsApi.getImageSrc(url) ?: return@withContext ImageDetails(imageType = ImageType.UNKNOWN)
-                    val imageType = getImageType(data)
+                var imageType = imageDao.getImageType(imageId)
 
-                    var newData: ByteArray? = null
-                    var newImageType: ImageType? = null
-
-                    if (imageType != ImageType.SVG && imageType != ImageType.UNKNOWN) {
-                        newData = convertToWebp(data, imageType)
-                        newImageType = ImageType.WEBP
+                if (data == null || imageType == null) {
+                    println("Fetching from IPFS: $url")
+                    val rawData = ipfsApi.getImageSrc(url) ?: run {
+                        System.err.println("❌ IPFS returned null for: $url")
+                        return@withContext ImageDetails(imageType = ImageType.UNKNOWN)
                     }
 
-                    if (imageType == ImageType.GIF) {
-                        newData = SvgCorrector.processSvg(data)
-                        newImageType = ImageType.GIF
+                    imageType = getImageType(rawData)
+                    if (imageType == ImageType.UNKNOWN) {
+                        System.err.println("❌ Unknown image type detected for: $url")
+                        return@withContext ImageDetails(imageType = ImageType.UNKNOWN)
                     }
 
-                    if (newData != null && newImageType != null) {
-                        imageDao.addImage(imageId, newData, newImageType)
+                    var storageData = rawData
+                    var storageType = imageType
+
+                    if (imageType == ImageType.SVG) {
+                        try {
+                            storageData = SvgCorrector.processSvg(rawData)
+                        } catch (e: Exception) {
+                            System.err.println("❌ SVG correction failed for $url: ${e.message}")
+                        }
+                    } else if (imageType != ImageType.WEBP) {
+                        try {
+                            storageData = convertToWebp(rawData, imageType)
+                            storageType = ImageType.WEBP
+                        } catch (e: Exception) {
+                            System.err.println("❌ WebP conversion failed for $url: ${e.message}")
+                        }
                     }
+
+                    imageDao.addImage(imageId, storageData, storageType)
+                    data = storageData
+                    imageType = storageType
                 }
 
-                val imageType = imageDao.getImageType(imageId) ?: throw Exception("Image type $imageId not found")
                 if (imageType == ImageType.SVG) {
                     data = replaceColors(
-                        data = data, body = colors.base, eyes = colors.eyes, hair = colors.hair
+                        data = data, body = colors.base, eyes = colors.eyes, hair = colors.eyes // or colors.hair
                     )
                 }
 
                 ImageDetails(name = name, data = data, imageType = imageType)
             } catch (e: Exception) {
-                System.err.println("Failed to fetch asset: ${e.message}")
+                System.err.println("💥 Failed to process asset [$name] from $url: ${e.message}")
+                e.printStackTrace() // Prints full stack trace so you see the exact line causing the failure
                 ImageDetails(imageType = ImageType.UNKNOWN)
             }
         }
@@ -88,11 +105,16 @@ class ImageRepo : KoinComponent {
         val assetJobs = assets.map { asset -> async { getAsset(asset, colors) } }
         val images = assetJobs.awaitAll().filter { it.imageType != ImageType.UNKNOWN }
 
-        val traits = LAYER_ORDER.map { name -> images.first { it.name == name }.data }.toMutableList()
+        // Safely map layer order, omitting missing/failed layers without crashing
+        val traits = LAYER_ORDER.mapNotNull { name ->
+            images.firstOrNull { it.name == name }?.data
+        }.toMutableList()
+
+        if (traits.isEmpty()) return@withContext null
 
         val imagesWithMime = traits.map { bytes ->
             val image = images.first { it.data.contentEquals(bytes) }
-            image.copy(mimeType = image.mimeType)
+            image.copy(mimeType = getMime(image.imageType))
         }
 
         val traitsWithMime =

@@ -1,5 +1,6 @@
 package com.mashiverse.server.routes
 
+import com.mashiverse.data.db.daos.HistoryDao
 import com.mashiverse.data.db.daos.ImageDao
 import com.mashiverse.data.db.daos.UserDao
 import com.mashiverse.data.models.ImageType
@@ -12,10 +13,19 @@ import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.koin.ktor.ext.inject
+import java.util.*
+
+data class HistoryItemResponse(
+    val id: UUID,
+    val wallet: String,
+    val imageUrl: String,
+    val timestamp: String
+)
 
 fun Application.mashiRoutes() {
     val userDao by inject<UserDao>()
     val imageDao by inject<ImageDao>()
+    val historyDao by inject<HistoryDao>()
     val ipfsApi by inject<IpfsApi>()
 
     routing {
@@ -36,6 +46,58 @@ fun Application.mashiRoutes() {
             }
         }
 
+        // Paginated history route returning image links
+        get("/api/mashi/app/history/{wallet}") {
+            try {
+                val wallet = call.parameters["wallet"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+
+                val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 20
+                val offset = (page - 1) * limit
+
+                val historyList = historyDao.getHistoryByWalletPaginated(wallet, limit, offset)
+
+                // Map records to response objects containing the image link
+                val response = historyList.map { record ->
+                    HistoryItemResponse(
+                        id = record.id,
+                        wallet = record.wallet,
+                        imageUrl = "/api/mashi/app/history/image/${record.id}",
+                        timestamp = record.timestamp.toString()
+                    )
+                }
+
+                call.respond(response)
+            } catch (e: Exception) {
+                println(e.localizedMessage)
+                call.respond(HttpStatusCode.InternalServerError)
+            }
+        }
+
+        // Route to serve the history image bytes by history record ID
+        get("/api/mashi/app/history/image/{id}") {
+            try {
+                val idStr = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val id = UUID.fromString(idStr)
+
+                val record = historyDao.getHistoryById(id)
+
+                if (record?.image != null) {
+                    val imageType = getImageType(record.image)
+                    when (imageType) {
+                        ImageType.SVG -> call.respondBytes(record.image, ContentType.Image.SVG)
+                        ImageType.WEBP -> call.respondBytes(record.image, ContentType.Image.WEBP)
+                        else -> call.respondBytes(record.image, ContentType.Image.WEBP)
+                    }
+                } else {
+                    call.respond(HttpStatusCode.NotFound, "Image not found")
+                }
+            } catch (e: Exception) {
+                println(e.localizedMessage)
+                call.respond(HttpStatusCode.InternalServerError)
+            }
+        }
+
         get("/api/mashi/app/image/type/{image_id}") {
             try {
                 val imageId = call.parameters["image_id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
@@ -47,26 +109,29 @@ fun Application.mashiRoutes() {
                     val data = ipfsApi.getImageSrc(imageUrl)
 
                     if (data != null) {
-                        val tempImageType = getImageType(data)
+                        val detectedType = getImageType(data)
+                        if (detectedType != ImageType.UNKNOWN) {
+                            var storageData = data
+                            var storageType = detectedType
 
-                        var newData: ByteArray? = null
-                        var newImageType: ImageType? = null
+                            if (detectedType == ImageType.SVG) {
+                                try {
+                                    storageData = SvgCorrector.processSvg(data)
+                                } catch (e: Exception) {
+                                    System.err.println("Failed to process SVG for $imageId: ${e.message}")
+                                }
+                            } else if (detectedType != ImageType.WEBP) {
+                                try {
+                                    storageData = convertToWebp(data, detectedType)
+                                    storageType = ImageType.WEBP
+                                } catch (e: Exception) {
+                                    System.err.println("Failed to convert image to WebP for $imageId: ${e.message}")
+                                }
+                            }
 
-                        if (tempImageType != ImageType.SVG && tempImageType != ImageType.UNKNOWN) {
-                            newData = convertToWebp(data, tempImageType)
-                            newImageType = ImageType.WEBP
+                            imageDao.addImage(imageId, storageData, storageType)
+                            imageType = storageType
                         }
-
-                        if (tempImageType == ImageType.GIF) {
-                            newData = SvgCorrector.processSvg(data)
-                            newImageType = ImageType.GIF
-                        }
-
-                        if (newData != null && newImageType != null) {
-                            imageDao.addImage(imageId, newData, newImageType)
-                        }
-
-                        imageType = newImageType
                     }
                 }
 
