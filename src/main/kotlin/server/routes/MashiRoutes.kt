@@ -18,10 +18,16 @@ import java.util.*
 
 @Serializable
 data class HistoryItemResponse(
-    val id: String, // Changed to String to serialize safely
+    val id: String,
     val wallet: String,
     val imageUrl: String,
     val timestamp: String
+)
+
+@Serializable
+data class HistoryPageResponse(
+    val items: List<HistoryItemResponse>,
+    val hasNextPage: Boolean
 )
 
 fun Application.mashiRoutes() {
@@ -48,7 +54,7 @@ fun Application.mashiRoutes() {
             }
         }
 
-        // Paginated history route returning image links
+        // Paginated history route returning image links and hasNextPage metadata
         get("/api/mashi/app/history/{wallet}") {
             try {
                 val wallet = call.parameters["wallet"] ?: return@get call.respond(HttpStatusCode.BadRequest)
@@ -57,17 +63,26 @@ fun Application.mashiRoutes() {
                 val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 20
                 val offset = (page - 1) * limit
 
-                val historyList = historyDao.getHistoryByWalletPaginated(wallet, limit, offset)
+                // Fetch limit + 1 to efficiently check if a subsequent page exists
+                val historyList = historyDao.getHistoryByWalletPaginated(wallet, limit + 1, offset)
 
-                // Map records to response objects containing the image link and string ID
-                val response = historyList.map { record ->
+                val hasNextPage = historyList.size > limit
+                val actualList = if (hasNextPage) historyList.dropLast(1) else historyList
+
+                // Map records to response objects
+                val responseItems = actualList.map { record ->
                     HistoryItemResponse(
                         id = record.id.toString(),
                         wallet = record.wallet,
-                        imageUrl = "/api/mashi/app/history/image/${record.id}",
+                        imageUrl = "https://katzemon.com/api/mashi/app/history/image/${record.id}",
                         timestamp = record.timestamp.toString()
                     )
                 }
+
+                val response = HistoryPageResponse(
+                    items = responseItems,
+                    hasNextPage = hasNextPage
+                )
 
                 call.respond(response)
             } catch (e: Exception) {
