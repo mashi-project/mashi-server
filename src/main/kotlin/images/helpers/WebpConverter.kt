@@ -1,15 +1,24 @@
-﻿package com.mashiverse.images.converters
+﻿package com.mashiverse.images.helpers
 
+import com.mashiverse.data.models.ImageType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-suspend fun convertApngToWebp(apngBytes: ByteArray): ByteArray = withContext(Dispatchers.IO) {
-    val tempInputFile = File.createTempFile("animated_input_", ".apng")
-    val tempOutputFile = File.createTempFile("animated_output_", ".webp")
+suspend fun convertToWebp(imageBytes: ByteArray, imageType: ImageType): ByteArray = withContext(Dispatchers.IO) {
+    val extension = when (imageType) {
+        ImageType.PNG -> ".png"
+        ImageType.GIF -> ".gif"
+        ImageType.APNG -> ".apng"
+        ImageType.WEBP -> ".webp"
+        else -> ".img"
+    }
+
+    val tempInputFile = File.createTempFile("img_input_", extension)
+    val tempOutputFile = File.createTempFile("img_output_", ".webp")
 
     try {
-        tempInputFile.writeBytes(apngBytes)
+        tempInputFile.writeBytes(imageBytes)
 
         val processBuilder = ProcessBuilder(
             "ffmpeg",
@@ -34,19 +43,13 @@ suspend fun convertApngToWebp(apngBytes: ByteArray): ByteArray = withContext(Dis
         errorThread.join()
 
         if (exitCode != 0) {
-            throw RuntimeException("FFmpeg failed with exit code $exitCode: $errorOutput")
+            throw RuntimeException("FFmpeg conversion failed with exit code $exitCode: $errorOutput")
         }
 
         return@withContext tempOutputFile.readBytes()
 
     } finally {
-        try {
-            tempInputFile.delete()
-        } catch (_: Exception) {
-        }
-        try {
-            tempOutputFile.delete()
-        } catch (_: Exception) {
-        }
+        try { tempInputFile.delete() } catch (_: Exception) {}
+        try { tempOutputFile.delete() } catch (_: Exception) {}
     }
 }

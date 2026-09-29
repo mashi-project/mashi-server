@@ -4,6 +4,10 @@ import com.mashiverse.configs.GIF_HEIGHT
 import com.mashiverse.configs.GIF_TRAIT_HEIGHT
 import com.mashiverse.configs.GIF_TRAIT_WIDTH
 import com.mashiverse.configs.GIF_WIDTH
+import com.mashiverse.configs.LOWER_RES_GIF_HEIGHT
+import com.mashiverse.configs.LOWER_RES_GIF_TRAIT_HEIGHT
+import com.mashiverse.configs.LOWER_RES_GIF_TRAIT_WIDTH
+import com.mashiverse.configs.LOWER_RES_GIF_WIDTH
 import com.mashiverse.configs.PNG_HEIGHT
 import com.mashiverse.configs.PNG_TRAIT_HEIGHT
 import com.mashiverse.configs.PNG_TRAIT_WIDTH
@@ -15,6 +19,13 @@ fun getGifArgs() = mapOf(
     "IMAGE_HEIGHT" to GIF_HEIGHT,
     "TRAIT_WIDTH" to GIF_TRAIT_WIDTH,
     "TRAIT_HEIGHT" to GIF_TRAIT_HEIGHT
+)
+
+fun getLowerResGifArgs() = mapOf(
+    "IMAGE_WIDTH" to LOWER_RES_GIF_WIDTH,
+    "IMAGE_HEIGHT" to LOWER_RES_GIF_HEIGHT,
+    "TRAIT_WIDTH" to LOWER_RES_GIF_TRAIT_WIDTH,
+    "TRAIT_HEIGHT" to LOWER_RES_GIF_TRAIT_HEIGHT
 )
 
 fun getPngArgs() = mapOf(
@@ -38,7 +49,20 @@ fun prepareHtml(
     }.joinToString("\n")
 
     return """
+        <!DOCTYPE html>
         <html>
+            <head>
+                <style>
+                    * {
+                        box-sizing: border-box;
+                    }
+                    img, canvas {
+                        /* Force smooth scaling across engines */
+                        image-rendering: auto;
+                        image-rendering: smooth;
+                    }
+                </style>
+            </head>
             <body style="margin:0; width:${width}px; height:${height}px; background:transparent; overflow:hidden;">
                 $imageTags
             </body>

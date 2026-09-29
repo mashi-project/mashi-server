@@ -1,7 +1,6 @@
 ﻿package com.mashiverse.server.routes
 
 import com.mashiverse.data.models.Mashup
-import com.mashiverse.data.repos.ImageRepo
 import data.models.DownloadType
 import data.remote.dto.MashupDto
 import images.services.ImageService
@@ -10,7 +9,7 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.utils.io.jvm.javaio.toOutputStream
+import io.ktor.utils.io.jvm.javaio.*
 import org.koin.ktor.ext.inject
 import java.io.ByteArrayInputStream
 
@@ -43,8 +42,7 @@ fun Application.mashupRoutes() {
 
                 val image: ByteArray? = imageService.requestComposite(
                     mashup = mashup,
-                    downloadType = downloadType,
-                    mintedName = mintedName
+                    downloadType = downloadType
                 )
 
                 if (image == null) {

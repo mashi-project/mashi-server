@@ -23,18 +23,17 @@ RUN ./gradlew installDist --no-daemon
 # ==========================================
 FROM mcr.microsoft.com/playwright/java:v1.59.0-noble AS runtime
 
-# Install native dependencies required for OpenCV/OpenPNP AND ffmpeg for frame processing
+# Install native dependencies required for OpenCV/OpenPNP, ffmpeg, and gifsicle for GIF optimization
 RUN apt-get update && apt-get install -y \
     libopencv-dev \
     ffmpeg \
+    gifsicle \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copy the built distribution contents directly into /app (flattens structure)
 COPY --from=build /app/build/install/* /app/
-COPY mash-it-android-app-firebase-adminsdk-fbsvc-d3f46e9e0f.json /app/
-COPY mash-it-ios-firebase-adminsdk-fbsvc-67ff54426e.json /app/
 
 # Tell Playwright to look for the system browsers baked into this image
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1

@@ -2,84 +2,170 @@
 
 import com.mashiverse.configs.PNG_HEIGHT
 import com.mashiverse.configs.PNG_WIDTH
-import com.mashiverse.images.playwright.PlaywrightService
-import com.mashiverse.utils.helpers.readImageFiles
+import com.mashiverse.data.db.daos.HistoryDao
+import com.mashiverse.images.playwright.PlaywrightPool
 import com.microsoft.playwright.Browser
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.options.LoadState
 import com.microsoft.playwright.options.ScreenshotType
 import com.microsoft.playwright.options.ViewportSize
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
-import java.nio.file.Path
+import org.koin.core.component.inject
+import java.util.Base64
 
 class CompositeCombiner : KoinComponent {
-    fun generateComposite(tempDir: Path): Path {
-        val browser = PlaywrightService.getBrowser()
-        val frameName = String.format("frame_%03d.png", 0)
-        val framePath = tempDir.resolve(frameName)
 
-        try {
-            val imageUrls = readImageFiles(tempDir)
-            val htmlContent = prepareHtml(
-                urls = imageUrls,
-                width = PNG_WIDTH,
-                height = PNG_HEIGHT
+    private val historyDao by inject<HistoryDao>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    suspend fun generateComposite(
+        traitsBytes: List<Pair<String, ByteArray>>,
+        wallet: String? = null
+    ): ByteArray {
+
+        val imageUrls = traitsBytes.map { (mime, bytes) ->
+            val b64 = Base64.getEncoder().encodeToString(bytes)
+            "data:$mime;base64,$b64"
+        }
+
+        val htmlContent = prepareHtml(
+            urls = imageUrls,
+            width = PNG_WIDTH,
+            height = PNG_HEIGHT
+        )
+
+        val imageBytes = PlaywrightPool.execute { browser ->
+
+            val context = browser.newContext(
+                Browser.NewContextOptions()
+                    .setViewportSize(
+                        ViewportSize(PNG_WIDTH, PNG_HEIGHT)
+                    )
+                    .setDeviceScaleFactor(1.0)
             )
 
-            // Using .use guarantees clean resource teardown automatically
-            browser.use { b ->
-                val context = b.newContext(
-                    Browser.NewContextOptions().setViewportSize(ViewportSize(PNG_WIDTH, PNG_HEIGHT))
+            context.use { ctx ->
+
+                val page = ctx.newPage()
+
+                // ---------------------------------------------------------
+                // Load page
+                // ---------------------------------------------------------
+
+                page.setContent(htmlContent)
+
+                page.waitForLoadState(LoadState.LOAD)
+
+                // ---------------------------------------------------------
+                // Wait for every image to actually load
+                // ---------------------------------------------------------
+
+                page.waitForFunction(
+                    """
+                    () => Array.from(document.images).every(
+                        img => img.complete &&
+                               img.naturalWidth > 0 &&
+                               img.naturalHeight > 0
+                    )
+                    """.trimIndent()
                 )
 
-                context.use { ctx ->
-                    val page = ctx.newPage()
-                    page.setContent(htmlContent)
-                    preparePage(page, getPngArgs())
+                // ---------------------------------------------------------
+                // Decode every image
+                // ---------------------------------------------------------
 
-                    // Wait for initial load and image decodes (LOAD avoids NETWORKIDLE's mandatory 500ms delay)
-                    page.waitForLoadState(LoadState.LOAD)
-                    page.waitForFunction(
-                        "Array.from(document.images).every(img => img.complete && img.naturalWidth > 0)"
+                page.evaluate(
+                    """
+                    async () => {
+                        const images = Array.from(document.images);
+
+                        await Promise.all(
+                            images.map(async (img) => {
+                                if (typeof img.decode === 'function') {
+                                    try {
+                                        await img.decode();
+                                    } catch (_) {
+                                        // Ignore decode errors.
+                                    }
+                                }
+                            })
+                        );
+                    }
+                    """.trimIndent()
+                )
+
+                // ---------------------------------------------------------
+                // Apply your page styling AFTER images are available
+                // ---------------------------------------------------------
+
+                preparePage(page, getPngArgs())
+
+                // ---------------------------------------------------------
+                // Wait again because preparePage may alter the DOM/CSS
+                // ---------------------------------------------------------
+
+                page.waitForFunction(
+                    """
+                    () => Array.from(document.images).every(
+                        img => img.complete &&
+                               img.naturalWidth > 0 &&
+                               img.naturalHeight > 0
                     )
+                    """.trimIndent()
+                )
 
-                    // Option 1: Freeze frame by drawing each image onto a canvas and swapping src
-                    page.evaluate(
-                        """
-                        () => {
-                            for (const img of document.querySelectorAll('img')) {
-                                const canvas = document.createElement('canvas');
-                                canvas.width = img.naturalWidth;
-                                canvas.height = img.naturalHeight;
-                                const ctx = canvas.getContext('2d');
-                                ctx.drawImage(img, 0, 0);
-                                img.src = canvas.toDataURL();
-                            }
-                        }
-                        """.trimIndent()
+                page.evaluate(
+                    """
+                    async () => {
+                        const images = Array.from(document.images);
+
+                        await Promise.all(
+                            images.map(async (img) => {
+                                if (typeof img.decode === 'function') {
+                                    try {
+                                        await img.decode();
+                                    } catch (_) {}
+                                }
+                            })
+                        );
+
+                        // Allow browser to paint the final composition.
+                        await new Promise(requestAnimationFrame);
+                        await new Promise(requestAnimationFrame);
+                    }
+                    """.trimIndent()
+                )
+
+                // ---------------------------------------------------------
+                // Screenshot
+                // ---------------------------------------------------------
+
+                return@execute page.screenshot(
+                    Page.ScreenshotOptions()
+                        .setType(ScreenshotType.PNG)
+                        .setOmitBackground(false)
+                )
+            }
+        }
+
+        // Launch separate background coroutine to save history asynchronously
+        if (!wallet.isNullOrBlank()) {
+            scope.launch {
+                try {
+                    historyDao.addHistory(
+                        wallet = wallet,
+                        image = imageBytes
                     )
-
-                    // Ensure all swapped data-URL images are completed rendering
-                    page.waitForFunction(
-                        "Array.from(document.images).every(img => img.complete)"
-                    )
-
-                    // Capture immediately now that images are converted to static canvases
-                    page.screenshot(
-                        Page.ScreenshotOptions()
-                            .setPath(framePath)
-                            .setType(ScreenshotType.PNG)
-                            .setOmitBackground(false)
-                    )
-
-                    page.close()
+                } catch (e: Exception) {
+                    System.err.println("Failed to save composite to history for wallet $wallet: ${e.message}")
                 }
             }
-
-            return framePath
-        } catch (e: Exception) {
-            System.err.println("Error in generateComposite: ${e.message}")
-            throw e
         }
+
+        return imageBytes
     }
 }

@@ -19,7 +19,10 @@ import dev.kord.rest.builder.interaction.string
 import dev.kord.rest.builder.message.embed
 import images.services.ImageService
 import io.ktor.client.request.forms.*
+import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.jvm.javaio.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -42,6 +45,7 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                 string("image", "Image type") {
                     choice("PNG", "PNG")
                     choice("GIF", "GIF")
+                    choice("SMALLER_GIF", "SMALLER_GIF")
                 }
             }
             kord.createGlobalChatInputCommand("delete_mashup", "Deletes mashup") {
@@ -61,58 +65,73 @@ class MashupModule(private val kord: Kord) : KoinComponent {
         }
     }
 
-    private suspend fun handleMashi(event: ChatInputCommandInteractionCreateEvent) {
+    private suspend fun handleMashi(event: ChatInputCommandInteractionCreateEvent) = coroutineScope {
         val interaction = event.interaction
         val imageOpt = interaction.command.options["image"]?.value?.toString() ?: "PNG"
-
-        var msg: Message? = null
         val userId = interaction.user.id.value.toLong()
+
         val wallet = userDao.getWallet(userId)
 
         if (wallet == null) {
             interaction.deferEphemeralResponse().respond {
                 content = "Please use /connect_wallet command"
             }
-            return
+            return@coroutineScope
         }
 
+        // 2. Wallet exists -> Now defer publicly
         val response = interaction.deferPublicResponse()
 
         try {
             val downloadType = DownloadType.valueOf(imageOpt)
             val ext = if (downloadType == DownloadType.PNG) ".png" else ".gif"
+            val filename = "composite$ext"
 
-            val data = imageService.requestComposite(wallet, downloadType = downloadType)
-            if (data != null) {
-                val filename = "composite$ext"
-                val inputStream = ByteArrayInputStream(data)
-                val channelProvider = ChannelProvider { inputStream.toByteReadChannel() }
+            // 2. Fetch the assembled data bytes safely
+            var data = imageService.requestCompositeData(wallet, downloadType = downloadType)
+                ?: throw IllegalStateException("Failed to generate composite image data")
 
-                val randomColor = Color(Random.nextInt(0xFFFFFF))
-
-                val interactionResponse = response.respond {
-                    addFile(filename, channelProvider)
-                    embed {
-                        title = "${interaction.user.username}'s mashup"
-                        color = randomColor
-                        image = "attachment://$filename"
-                        footer { text = "© 2026 mash-it" }
-                    }
-                }
-                msg = interactionResponse.message
+            if (data.second > 8 * 1024 * 1024 && downloadType == DownloadType.GIF) {
+                data = imageService.requestCompositeData(wallet, downloadType = DownloadType.SMALLER_GIF)
+                    ?: throw IllegalStateException("Failed to generate composite image data")
             }
+
+            val (bytes, size) = data
+
+            // Supplying ByteReadChannel(bytes) inside the lambda allows Kord/Ktor
+            // to re-read the channel if needed without premature stream closing
+            val channelProvider = ChannelProvider(size) {
+                ByteReadChannel(bytes)
+            }
+
+            val interactionResponse = response.respond {
+                addFile(filename, channelProvider)
+                embed {
+                    title = "${interaction.user.globalName}'s mashup"
+                    color = Color(Random.nextInt(0xFFFFFF))
+                    image = "attachment://$filename"
+                    footer { text = "© 2026 mash-it" }
+                }
+            }
+
+            // 3. Fire reaction in the background without suspending handler completion
+            launch {
+                runCatching {
+                    interactionResponse.message.addReaction(ReactionEmoji.Unicode("🔥"))
+                }
+            }
+
         } catch (e: Exception) {
-            // Notifying a fixed log channel still works fine from a DM context,
-            // since this uses the bot's own channel lookup, not the user's guild.
             val channel = kord.getChannelOf<TextChannel>(Snowflake(TEST_CHANNEL_ID))
             channel?.createMessage("/mashi: ${e.message}")
-            response.respond { content = "Something went wrong" }
-        } finally {
-            msg?.let {
-                try {
-                    it.addReaction(ReactionEmoji.Unicode("🔥"))
-                } catch (e: Exception) {
-                    println(e.message)
+
+            runCatching {
+                interaction.kord.rest.interaction.createFollowupMessage(
+                    interaction.applicationId,
+                    interaction.token,
+                    ephemeral = true
+                ) {
+                    content = "Something went wrong"
                 }
             }
         }
@@ -138,7 +157,7 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                     val permissions = member.getPermissions()
                     permissions.contains(Permission.Administrator) ||
                             permissions.contains(Permission.ManageMessages) ||
-                            i.user.id == i.getGuild()?.ownerId
+                            i.user.id == i.getGuild().ownerId
                 }
                 else -> false
             }

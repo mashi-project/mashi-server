@@ -2,12 +2,13 @@
 
 import com.mashiverse.configs.LAYER_ORDER
 import com.mashiverse.data.db.daos.ImageDao
-import com.mashiverse.data.models.Asset
-import com.mashiverse.data.models.Colors
-import com.mashiverse.data.models.ImageType
-import com.mashiverse.data.models.Mashup
+import com.mashiverse.data.models.*
 import com.mashiverse.data.remote.apis.IpfsApi
-import com.mashiverse.images.helpers.*
+import com.mashiverse.images.helpers.SvgCorrector
+import com.mashiverse.images.helpers.convertToWebp
+import com.mashiverse.images.helpers.getImageType
+import com.mashiverse.images.helpers.getMime
+import com.mashiverse.images.helpers.replaceColors
 import com.mashiverse.images.playwright.combiners.AnimCombiner
 import com.mashiverse.images.playwright.combiners.CompositeCombiner
 import com.mashiverse.utils.helpers.readFile
@@ -31,87 +32,133 @@ class ImageRepo : KoinComponent {
     private val imageDao by inject<ImageDao>()
     private val ipfsApi by inject<IpfsApi>()
 
-    suspend fun getAsset(asset: Asset, colors: Colors): Pair<String, ByteArray>? {
+    suspend fun getAsset(asset: Asset, colors: Colors): ImageDetails {
         return withContext(Dispatchers.IO) {
-            return@withContext try {
-                val name = asset.name.lowercase()
-                val url = asset.image
+            val name = asset.name.lowercase()
+            val url = asset.image
+            try {
+                val imageId = url.split("/").last()
 
-                var data = imageDao.getImage(url)
-                if (data == null) {
-                    data = ipfsApi.getImageSrc(url) ?: return@withContext null
-                    val imageType = getImageType(data)
-                    if (imageType != ImageType.UNKNOWN) {
-                        imageDao.addImage(url, data)
+                var data = imageDao.getImage(imageId)
+                var imageType = imageDao.getImageType(imageId)
+
+                if (data == null || imageType == null) {
+                    println("Fetching from IPFS: $url")
+                    val rawData = ipfsApi.getImageSrc(url) ?: run {
+                        System.err.println("❌ IPFS returned null for: $url")
+                        return@withContext ImageDetails(imageType = ImageType.UNKNOWN)
                     }
+
+                    imageType = getImageType(rawData)
+                    if (imageType == ImageType.UNKNOWN) {
+                        System.err.println("❌ Unknown image type detected for: $url")
+                        return@withContext ImageDetails(imageType = ImageType.UNKNOWN)
+                    }
+
+                    var storageData = rawData
+                    var storageType = imageType
+
+                    if (imageType == ImageType.SVG) {
+                        try {
+                            storageData = SvgCorrector.processSvg(rawData)
+                        } catch (e: Exception) {
+                            System.err.println("❌ SVG correction failed for $url: ${e.message}")
+                        }
+                    } else if (imageType != ImageType.WEBP) {
+                        try {
+                            storageData = convertToWebp(rawData, imageType)
+                            storageType = ImageType.WEBP
+                        } catch (e: Exception) {
+                            System.err.println("❌ WebP conversion failed for $url: ${e.message}")
+                        }
+                    }
+
+                    imageDao.addImage(imageId, storageData, storageType)
+                    data = storageData
+                    imageType = storageType
                 }
 
-                val imageType = getImageType(data)
                 if (imageType == ImageType.SVG) {
                     data = replaceColors(
-                        data = data, body = colors.base, eyes = colors.eyes, hair = colors.hair
+                        data = data, body = colors.base, eyes = colors.eyes, hair = colors.eyes // or colors.hair
                     )
                 }
-                Pair(name, data)
+
+                ImageDetails(name = name, data = data, imageType = imageType)
             } catch (e: Exception) {
-                print(e.message)
-                null
+                System.err.println("💥 Failed to process asset [$name] from $url: ${e.message}")
+                e.printStackTrace() // Prints full stack trace so you see the exact line causing the failure
+                ImageDetails(imageType = ImageType.UNKNOWN)
             }
         }
     }
 
-    suspend fun getImage(
-        mashup: Mashup, downloadType: DownloadType = DownloadType.PNG, mintedName: String? = null
-    ): ByteArray? {
-        return withContext(Dispatchers.IO) {
-            val tempDir = Paths.get(System.getProperty("java.io.tmpdir")).resolve("mashi-temp")
-            Files.createDirectories(tempDir)
+    suspend fun getImageData(
+        mashup: Mashup,
+        downloadType: DownloadType = DownloadType.PNG,
+        wallet: String? = null,
+    ): Pair<ByteArray, Long>? = withContext(Dispatchers.IO) {
+        val assets = mashup.traits
+        val colors = mashup.colors
 
-            val uniqueDir = tempDir.resolve(UUID.randomUUID().toString())
-            Files.createDirectories(uniqueDir)
+        if (assets.isEmpty()) return@withContext null
 
-            try {
-                val assets = mashup.traits
-                val colors = mashup.colors
+        val assetJobs = assets.map { asset -> async { getAsset(asset, colors) } }
+        val images = assetJobs.awaitAll().filter { it.imageType != ImageType.UNKNOWN }
 
-                if (assets.isEmpty()) {
-                    return@withContext null
-                }
+        // Safely map layer order, omitting missing/failed layers without crashing
+        val traits = LAYER_ORDER.mapNotNull { name ->
+            images.firstOrNull { it.name == name }?.data
+        }.toMutableList()
 
-                val assetJobs = assets.map { asset ->
-                    async { getAsset(asset, colors) }
-                }
+        if (traits.isEmpty()) return@withContext null
 
-                val srcs = assetJobs.awaitAll().filterNotNull().toMap()
-
-                val traits = LAYER_ORDER.mapNotNull { name -> srcs[name] }.toMutableList()
-
-                if (!mintedName.isNullOrEmpty()) {
-                    val mintedTrait = getMintedTrait(mintedName)
-                    traits.add(mintedTrait)
-                }
-
-                traits.forEachIndexed { index, bytes ->
-                    val mime = getMime(bytes)
-                    val b64 = Base64.getEncoder().encodeToString(bytes)
-                    val filePath = uniqueDir.resolve(index.toString())
-                    val fileContent = "data:$mime;base64,$b64".toByteArray(Charsets.UTF_8)
-                    writeFile(filePath, fileContent)
-                }
-
-                val imagePath: Path = if (downloadType == DownloadType.PNG) {
-                    compositeCombiner.generateComposite(uniqueDir)
-                } else {
-                    val maxT = getMaxDuration(traits)
-                    animCombiner.generateAnim(uniqueDir, maxT)
-                }
-
-                return@withContext readFile(imagePath)
-            } catch (e: Exception) {
-                return@withContext null
-            } finally {
-                rmDir(uniqueDir)
-            }
+        val imagesWithMime = traits.map { bytes ->
+            val image = images.first { it.data.contentEquals(bytes) }
+            image.copy(mimeType = getMime(image.imageType))
         }
+
+        val traitsWithMime =
+            imagesWithMime.filter { it.mimeType != null && it.data != null }.map { it.mimeType!! to it.data!! }.toList()
+
+        // 1. PNG: In-memory pipeline, zero disk writes
+        if (downloadType == DownloadType.PNG) {
+            val bytes = compositeCombiner.generateComposite(traitsWithMime, wallet = wallet)
+            return@withContext Pair(bytes, bytes.size.toLong())
+        }
+
+        // 2. GIF: Render in system temp directory (/tmp) instead of /dev/shm
+        val sysTmpDir = Paths.get(System.getProperty("java.io.tmpdir")).resolve("mashi-temp")
+        Files.createDirectories(sysTmpDir)
+
+        val uniqueDir = Files.createTempDirectory(sysTmpDir, "anim-")
+
+        try {
+            traitsWithMime.forEachIndexed { index, (mime, bytes) ->
+                val b64 = Base64.getEncoder().encodeToString(bytes)
+                val filePath = uniqueDir.resolve(index.toString())
+                val fileContent = "data:$mime;base64,$b64".toByteArray(Charsets.UTF_8)
+                writeFile(filePath, fileContent)
+            }
+
+            val isLowerRes = downloadType == DownloadType.SMALLER_GIF
+            val gifPath: Path = animCombiner.generateAnim(uniqueDir, isLowerRes, wallet = wallet)
+
+            // Read into byte array BEFORE rmDir destroys the file
+            val bytes = readFile(gifPath)
+            Pair(bytes, bytes.size.toLong())
+        } finally {
+            rmDir(uniqueDir)
+        }
+    }
+
+    /**
+     * Backward-compatible helper returning ByteArray.
+     */
+    suspend fun getImage(
+        mashup: Mashup,
+        downloadType: DownloadType = DownloadType.PNG,
+    ): ByteArray? {
+        return getImageData(mashup, downloadType)?.first
     }
 }

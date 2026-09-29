@@ -7,7 +7,7 @@ import com.mashiverse.data.remote.apis.IpfsApi
 import com.mashiverse.data.remote.dto.NotifyDto
 import com.mashiverse.data.repos.ImageRepo
 import data.models.DownloadType
-import isImageAnimated
+import com.mashiverse.utils.helpers.isImageAnimated
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -41,25 +41,27 @@ class AnimService : KoinComponent {
     }
 
     suspend fun checkIfAnyAnimated(notifyDto: NotifyDto): Boolean {
-        try {
+        return try {
             val assets: List<Asset> = getAssets(notifyDto)
+            if (assets.isEmpty()) return false
 
             val bytes: List<ByteArray> = coroutineScope {
-                assets.map {
-                    async { ipfsApi.getImageSrc(imageUrl = it.image, maxRetries = 5) }
+                assets.map { asset ->
+                    async { ipfsApi.getImageSrc(imageUrl = asset.image, maxRetries = 5) }
                 }.awaitAll()
                     .filterNotNull()
             }
 
-            return bytes.any { isImageAnimated(bytes = it).isAnimated }
+            bytes.any { isImageAnimated(bytes = it).isAnimated }
         } catch (e: Exception) {
-            println(e)
-            return false
+            println("Error in checkIfAnyAnimated: ${e.message}")
+            e.printStackTrace()
+            false
         }
     }
 
     suspend fun generateAnim(notifyDto: NotifyDto): ByteArray? {
-        try {
+        return try {
             val assets = getAssets(notifyDto)
             val colors = Colors("#A15A05", "#C9C937", "#8E8EC1")
             val mashup = Mashup(
@@ -67,15 +69,14 @@ class AnimService : KoinComponent {
                 traits = assets
             )
 
-            val image = imageRepo.getImage(
+            imageRepo.getImage(
                 mashup = mashup,
-                downloadType = DownloadType.GIF
+                downloadType = DownloadType.SMALLER_GIF
             )
-
-            return image
         } catch (e: Exception) {
-            println(e)
-            return null
+            println("Error in generateAnim: ${e.message}")
+            e.printStackTrace()
+            null
         }
     }
 }

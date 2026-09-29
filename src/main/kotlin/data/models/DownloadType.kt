@@ -1,6 +1,7 @@
 ﻿package data.models
 
-enum class DownloadType(extension: String) {
-    PNG("PNG"),
-    GIF("GIF")
+enum class DownloadType {
+    PNG,
+    GIF,
+    SMALLER_GIF
 }
