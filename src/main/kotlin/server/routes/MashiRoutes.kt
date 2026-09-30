@@ -242,7 +242,7 @@ fun Application.mashiRoutes() {
                         .setNotification(
                             Notification.builder()
                                 .setTitle("Mashup Ready! 🎉")
-                                .setBody("Your new image mashup has been successfully generated.")
+                                .setBody("See it in history tab")
                                 .build()
                         )
                         .putData("walletId", walletId)
