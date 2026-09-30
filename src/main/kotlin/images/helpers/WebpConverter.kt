@@ -24,8 +24,15 @@ suspend fun convertToWebp(imageBytes: ByteArray, imageType: ImageType): ByteArra
             "ffmpeg",
             "-y",
             "-i", tempInputFile.absolutePath,
+            // 1. Only handle dimension scaling in the filter chain
+            "-vf", "scale='min(828,iw)':'min(1104,ih)':force_original_aspect_ratio=decrease",
+            // 2. Use libwebp_anim for multi-frame support
             "-c:v", "libwebp_anim",
-            "-lossless", "1",
+            // 3. Pass transparency pixel format globally via -pix_fmt instead of inside the filter
+            "-pix_fmt", "yuva420p",
+            "-q:v", "85",
+            "-compression_level", "6",
+            "-pred", "mixed",
             "-loop", "0",
             tempOutputFile.absolutePath
         )

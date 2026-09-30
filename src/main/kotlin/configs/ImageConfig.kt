@@ -4,10 +4,10 @@
 import kotlinx.coroutines.sync.Semaphore
 
 // GIF
-const val GIF_WIDTH = (552 * 1.75).toInt()
-const val GIF_HEIGHT = (736 * 1.75).toInt()
-const val GIF_TRAIT_WIDTH = (380 * 1.75).toInt()
-const val GIF_TRAIT_HEIGHT = (600 * 1.75).toInt()
+const val GIF_WIDTH = (552 * 1.5).toInt()
+const val GIF_HEIGHT = (736 * 1.5).toInt()
+const val GIF_TRAIT_WIDTH = (380 * 1.5).toInt()
+const val GIF_TRAIT_HEIGHT = (600 * 1.5).toInt()
 const val PLAYBACK_FPS = 15
 const val DURATION_LIMIT_SEC = 5.0
 
@@ -17,10 +17,10 @@ const val LOWER_RES_GIF_TRAIT_WIDTH = (380 * 1.5).toInt()
 const val LOWER_RES_GIF_TRAIT_HEIGHT = (600 * 1.5).toInt()
 
 // PNG
-const val PNG_WIDTH = 552 * 2
-const val PNG_HEIGHT = 736 * 2
-const val PNG_TRAIT_WIDTH = 380 * 2
-const val PNG_TRAIT_HEIGHT = 600 * 2
+const val PNG_WIDTH = (552 * 1.5).toInt()
+const val PNG_HEIGHT = (736 * 1.5).toInt()
+const val PNG_TRAIT_WIDTH = (380 * 1.5).toInt()
+const val PNG_TRAIT_HEIGHT = (600 * 1.5).toInt()
 
 // Other
 const val MAX_GENERATIONS = 10
