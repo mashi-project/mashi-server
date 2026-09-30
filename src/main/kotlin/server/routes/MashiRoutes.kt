@@ -21,7 +21,8 @@ data class HistoryItemResponse(
     val id: String,
     val wallet: String,
     val imageUrl: String,
-    val timestamp: String
+    val timestamp: String,
+    val imageType: String,
 )
 
 @Serializable
@@ -75,7 +76,8 @@ fun Application.mashiRoutes() {
                         id = record.id.toString(),
                         wallet = record.wallet,
                         imageUrl = "https://katzemon.com/api/mashi/app/history/image/${record.id}",
-                        timestamp = record.timestamp.toString()
+                        timestamp = record.timestamp.toString(),
+                        imageType = historyDao.getHistoryById(record.id).toString()
                     )
                 }
 
@@ -109,6 +111,18 @@ fun Application.mashiRoutes() {
                 } else {
                     call.respond(HttpStatusCode.NotFound, "Image not found")
                 }
+            } catch (e: Exception) {
+                println(e.localizedMessage)
+                call.respond(HttpStatusCode.InternalServerError)
+            }
+        }
+
+        get("/api/mashi/app/history/image/delete/{id}") {
+            try {
+                val idStr = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val id = UUID.fromString(idStr)
+                historyDao.deleteHistory(id)
+                call.respond(HttpStatusCode.OK)
             } catch (e: Exception) {
                 println(e.localizedMessage)
                 call.respond(HttpStatusCode.InternalServerError)
