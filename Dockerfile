@@ -14,6 +14,7 @@ RUN sed -i 's/\r$//' ./gradlew && chmod +x ./gradlew
 # Copy the rest of the application source code
 COPY src ./src
 COPY keys.properties* ./
+COPY mashis-firebase-adminsdk-fbsvc-83530f89e4.json* ./
 
 # Build the distribution allocation
 RUN ./gradlew installDist --no-daemon
@@ -34,6 +35,9 @@ WORKDIR /app
 
 # Copy the built distribution contents directly into /app (flattens structure)
 COPY --from=build /app/build/install/* /app/
+
+# Copy the Firebase service account JSON into the runtime root directory
+COPY --from=build /app/mashis-firebase-adminsdk-fbsvc-83530f89e4.json* ./
 
 # Tell Playwright to look for the system browsers baked into this image
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1

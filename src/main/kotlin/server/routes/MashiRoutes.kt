@@ -1,17 +1,25 @@
 package com.mashiverse.server.routes
 
+import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.messaging.Message
+import com.google.firebase.messaging.Notification
 import com.mashiverse.data.db.daos.HistoryDao
 import com.mashiverse.data.db.daos.ImageDao
 import com.mashiverse.data.db.daos.UserDao
 import com.mashiverse.data.models.ImageType
 import com.mashiverse.data.remote.apis.IpfsApi
+import com.mashiverse.discord.MashiBot
 import com.mashiverse.images.helpers.SvgCorrector
 import com.mashiverse.images.helpers.convertToWebp
 import com.mashiverse.images.helpers.getImageType
+import data.models.DownloadType
+import images.services.ImageService
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.serialization.Serializable
 import org.koin.ktor.ext.inject
 import java.util.*
@@ -36,6 +44,7 @@ fun Application.mashiRoutes() {
     val imageDao by inject<ImageDao>()
     val historyDao by inject<HistoryDao>()
     val ipfsApi by inject<IpfsApi>()
+    val imageService by inject<ImageService>()
 
     routing {
         get("/api/mashi/app/wallet/{user_id}") {
@@ -49,6 +58,17 @@ fun Application.mashiRoutes() {
                 } else {
                     call.respond(HttpStatusCode.NotFound, "Wallet not found")
                 }
+            } catch (e: Exception) {
+                println(e.localizedMessage)
+                call.respond(HttpStatusCode.InternalServerError)
+            }
+        }
+
+        delete("/api/mashi/app/history/delete/{wallet}") {
+            try {
+                val wallet = call.parameters["wallet"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
+                historyDao.deleteHistoryByWallet(wallet)
+                call.respond(HttpStatusCode.OK)
             } catch (e: Exception) {
                 println(e.localizedMessage)
                 call.respond(HttpStatusCode.InternalServerError)
@@ -194,6 +214,50 @@ fun Application.mashiRoutes() {
                 } else {
                     call.respond(HttpStatusCode.NotFound, "Image not found")
                 }
+            } catch (e: Exception) {
+                println(e.localizedMessage)
+                call.respond(HttpStatusCode.InternalServerError)
+            }
+        }
+
+        get("/api/mashi/app/generate/{wallet_id}") {
+            try {
+                val walletId = call.parameters["wallet_id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val type = DownloadType.valueOf(call.parameters["type"] ?: ImageType.PNG.name)
+                print(type)
+                val discord = call.parameters["discord"].toBoolean()
+
+                val data = imageService.requestCompositeData(wallet = walletId, downloadType = type)
+
+                if (discord) {
+                    val job =
+                        async { MashiBot.getInstance().sendMashup(data = data, downloadType = type, wallet = walletId) }
+                    awaitAll(job)
+                }
+
+                try {
+                    val topicName = walletId // Ensure your mobile app subscribes to this topic
+                    val fcmMessage = Message.builder()
+                        .setTopic(topicName)
+                        .setNotification(
+                            Notification.builder()
+                                .setTitle("Mashup Ready! 🎉")
+                                .setBody("Your new image mashup has been successfully generated.")
+                                .build()
+                        )
+                        .putData("walletId", walletId)
+                        .putData("type", type.name)
+                        .build()
+
+                    FirebaseMessaging.getInstance().send(fcmMessage)
+                } catch (e: Exception) {
+                    System.err.println("Failed to send FCM notification: ${e.message}")
+                }
+                // -------------------------------------------------------
+
+                call.respond(HttpStatusCode.OK)
+
+                call.respond(HttpStatusCode.OK)
             } catch (e: Exception) {
                 println(e.localizedMessage)
                 call.respond(HttpStatusCode.InternalServerError)

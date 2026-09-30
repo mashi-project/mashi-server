@@ -63,6 +63,21 @@ class UserDao {
         }
     }
 
+    /**
+     * Retrieves the user ID associated with the given wallet address.
+     * Returns null if the wallet doesn't exist in the database.
+     */
+    suspend fun getIdByWallet(wallet: String): Long? = withContext(Dispatchers.IO) {
+        getConnection().use { conn ->
+            conn.prepareStatement(queries.selectIdByWallet).use { stmt ->
+                stmt.setString(1, wallet)
+                stmt.executeQuery().use { rs ->
+                    if (rs.next()) rs.getLong("id") else null
+                }
+            }
+        }
+    }
+
     suspend fun isExist(wallet: String): Boolean = withContext(Dispatchers.IO) {
         getConnection().use { conn ->
             conn.prepareStatement(queries.checkWalletExists).use { stmt ->
@@ -92,6 +107,7 @@ class UserDao {
 
         val deleteUser = "DELETE FROM users WHERE id = ?"
         val selectWalletById = "SELECT wallet FROM users WHERE id = ?"
+        val selectIdByWallet = "SELECT id FROM users WHERE wallet = ?"
         val checkWalletExists = "SELECT 1 FROM users WHERE wallet = ?"
     }
 }
