@@ -72,12 +72,14 @@ fun Application.mashiRoutes() {
 
                 // Map records to response objects
                 val responseItems = actualList.map { record ->
+                    val detectedType = if (record.image != null) getImageType(record.image) else ImageType.UNKNOWN
+
                     HistoryItemResponse(
                         id = record.id.toString(),
                         wallet = record.wallet,
                         imageUrl = "https://katzemon.com/api/mashi/app/history/image/${record.id}",
                         timestamp = record.timestamp.toString(),
-                        imageType = historyDao.getHistoryById(record.id).toString()
+                        imageType = detectedType.name // <-- Fix: use .name instead of converting the whole record to a string
                     )
                 }
 
@@ -117,9 +119,9 @@ fun Application.mashiRoutes() {
             }
         }
 
-        get("/api/mashi/app/history/image/delete/{id}") {
+        delete("/api/mashi/app/history/image/delete/{id}") {
             try {
-                val idStr = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val idStr = call.parameters["id"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
                 val id = UUID.fromString(idStr)
                 historyDao.deleteHistory(id)
                 call.respond(HttpStatusCode.OK)
