@@ -7,5 +7,7 @@ ktor:
       - com.mashiverse.utils.other.HttpKt.configureHttp
       - com.mashiverse.utils.other.SerializationKt.configureSerialization
       - com.mashiverse.server.routes.NotifyRoutesKt.notifyRoutes
+      - com.mashiverse.server.routes.HistoryRoutesKt.historyRoutes
+      - com.mashiverse.server.routes.PreviewRoutesKt.previewRoutes
       - com.mashiverse.utils.other.BotKt.bot
       - com.mashiverse.server.routes.MashiRoutesKt.mashiRoutes

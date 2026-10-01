@@ -6,7 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.sql.Timestamp
 import java.time.Instant
-import java.util.UUID
+import java.util.*
 
 class HistoryDao {
 
@@ -80,29 +80,30 @@ class HistoryDao {
         }
     }
 
-    suspend fun getHistoryByWalletPaginated(wallet: String, limit: Int, offset: Int): List<HistoryRecord> = withContext(Dispatchers.IO) {
-        getConnection().use { conn ->
-            conn.prepareStatement(queries.selectByWalletPaginated).use { stmt ->
-                stmt.setString(1, wallet)
-                stmt.setInt(2, limit)
-                stmt.setInt(3, offset)
-                stmt.executeQuery().use { rs ->
-                    val results = mutableListOf<HistoryRecord>()
-                    while (rs.next()) {
-                        results.add(
-                            HistoryRecord(
-                                id = rs.getObject("id", UUID::class.java),
-                                wallet = rs.getString("wallet"),
-                                image = rs.getBytes("image"),
-                                timestamp = rs.getTimestamp("timestamp")?.toInstant() ?: Instant.now()
+    suspend fun getHistoryByWalletPaginated(wallet: String, limit: Int, offset: Int): List<HistoryRecord> =
+        withContext(Dispatchers.IO) {
+            getConnection().use { conn ->
+                conn.prepareStatement(queries.selectByWalletPaginated).use { stmt ->
+                    stmt.setString(1, wallet)
+                    stmt.setInt(2, limit)
+                    stmt.setInt(3, offset)
+                    stmt.executeQuery().use { rs ->
+                        val results = mutableListOf<HistoryRecord>()
+                        while (rs.next()) {
+                            results.add(
+                                HistoryRecord(
+                                    id = rs.getObject("id", UUID::class.java),
+                                    wallet = rs.getString("wallet"),
+                                    image = rs.getBytes("image"),
+                                    timestamp = rs.getTimestamp("timestamp")?.toInstant() ?: Instant.now()
+                                )
                             )
-                        )
+                        }
+                        results
                     }
-                    results
                 }
             }
         }
-    }
 
     suspend fun deleteHistory(id: UUID): Unit = withContext(Dispatchers.IO) {
         getConnection().use { conn ->

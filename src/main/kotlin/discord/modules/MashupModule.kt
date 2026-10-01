@@ -9,7 +9,6 @@ import dev.kord.common.entity.Permission
 import dev.kord.common.entity.Snowflake
 import dev.kord.core.Kord
 import dev.kord.core.behavior.interaction.response.respond
-import dev.kord.core.entity.Message
 import dev.kord.core.entity.ReactionEmoji
 import dev.kord.core.entity.channel.TextChannel
 import dev.kord.core.entity.interaction.GuildChatInputCommandInteraction
@@ -19,14 +18,11 @@ import dev.kord.rest.builder.interaction.string
 import dev.kord.rest.builder.message.embed
 import images.services.ImageService
 import io.ktor.client.request.forms.*
-import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.jvm.javaio.*
-import kotlinx.coroutines.async
+import io.ktor.utils.io.*
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import java.io.ByteArrayInputStream
 import kotlin.random.Random
 
 class MashupModule(private val kord: Kord) : KoinComponent {
@@ -159,6 +155,7 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                             permissions.contains(Permission.ManageMessages) ||
                             i.user.id == i.getGuild().ownerId
                 }
+
                 else -> false
             }
 

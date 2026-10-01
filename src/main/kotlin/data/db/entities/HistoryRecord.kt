@@ -1,7 +1,7 @@
 package data.db.entities
 
 import java.time.Instant
-import java.util.UUID
+import java.util.*
 
 data class HistoryRecord(
     val id: UUID,

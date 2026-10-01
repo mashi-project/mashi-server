@@ -1,12 +1,9 @@
 ﻿package com.mashiverse.discord.modules
 
-import com.mashiverse.configs.TEST_CHANNEL_ID
 import com.mashiverse.data.db.daos.UserDao
-import dev.kord.common.entity.Snowflake
 import dev.kord.core.Kord
 import dev.kord.core.behavior.interaction.response.respond
 import dev.kord.core.event.interaction.ChatInputCommandInteractionCreateEvent
-import dev.kord.core.event.interaction.GuildChatInputCommandInteractionCreateEvent
 import dev.kord.core.on
 import dev.kord.rest.builder.interaction.string
 import kotlinx.coroutines.launch
@@ -23,7 +20,7 @@ class WalletModule(private val kord: Kord) : KoinComponent {
 
     private fun registerCommands() {
         kord.launch {
-            kord.createGlobalChatInputCommand( "connect_wallet", "Connect wallet") {
+            kord.createGlobalChatInputCommand("connect_wallet", "Connect wallet") {
                 dmPermission = true
                 string("wallet", "Wallet") { required = true }
             }

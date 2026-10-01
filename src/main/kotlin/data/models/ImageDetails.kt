@@ -23,10 +23,10 @@ data class ImageDetails(
     }
 
     override fun hashCode(): Int {
-        var result = name?.hashCode() ?: 0
+        var result = name.hashCode()
         result = 31 * result + (data?.contentHashCode() ?: 0)
         result = 31 * result + imageType.hashCode()
-        result = 31 * result + (mimeType?.hashCode() ?: 0)
+        result = 31 * result + mimeType.hashCode()
         return result
     }
 }

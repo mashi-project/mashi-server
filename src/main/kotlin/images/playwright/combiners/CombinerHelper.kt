@@ -1,17 +1,6 @@
 ﻿package com.mashiverse.images.playwright.combiners
 
-import com.mashiverse.configs.GIF_HEIGHT
-import com.mashiverse.configs.GIF_TRAIT_HEIGHT
-import com.mashiverse.configs.GIF_TRAIT_WIDTH
-import com.mashiverse.configs.GIF_WIDTH
-import com.mashiverse.configs.LOWER_RES_GIF_HEIGHT
-import com.mashiverse.configs.LOWER_RES_GIF_TRAIT_HEIGHT
-import com.mashiverse.configs.LOWER_RES_GIF_TRAIT_WIDTH
-import com.mashiverse.configs.LOWER_RES_GIF_WIDTH
-import com.mashiverse.configs.PNG_HEIGHT
-import com.mashiverse.configs.PNG_TRAIT_HEIGHT
-import com.mashiverse.configs.PNG_TRAIT_WIDTH
-import com.mashiverse.configs.PNG_WIDTH
+import com.mashiverse.configs.*
 import com.microsoft.playwright.Page
 
 fun getGifArgs() = mapOf(

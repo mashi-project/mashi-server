@@ -56,7 +56,13 @@ suspend fun convertToWebp(imageBytes: ByteArray, imageType: ImageType): ByteArra
         return@withContext tempOutputFile.readBytes()
 
     } finally {
-        try { tempInputFile.delete() } catch (_: Exception) {}
-        try { tempOutputFile.delete() } catch (_: Exception) {}
+        try {
+            tempInputFile.delete()
+        } catch (_: Exception) {
+        }
+        try {
+            tempOutputFile.delete()
+        } catch (_: Exception) {
+        }
     }
 }

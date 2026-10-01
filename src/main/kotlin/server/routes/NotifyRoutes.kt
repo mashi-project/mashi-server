@@ -10,7 +10,7 @@ import io.ktor.server.routing.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 
-fun Application.notifyRoutes()  {
+fun Application.notifyRoutes() {
 
     routing {
         post("/api/mashi/release_notify") {

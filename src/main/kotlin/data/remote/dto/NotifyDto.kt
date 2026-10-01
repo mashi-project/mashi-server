@@ -35,7 +35,7 @@ data class NotifyDto(
         val listingId: String = "",
         val marketplace: String = "",
         val priceMatic: Double = 0.0,
-        val maxSupply: Int = - 1,
+        val maxSupply: Int = -1,
         val maxPerWallet: Int = -1
     )
 

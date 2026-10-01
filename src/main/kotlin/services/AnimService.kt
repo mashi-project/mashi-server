@@ -6,8 +6,8 @@ import com.mashiverse.data.models.Mashup
 import com.mashiverse.data.remote.apis.IpfsApi
 import com.mashiverse.data.remote.dto.NotifyDto
 import com.mashiverse.data.repos.ImageRepo
-import data.models.DownloadType
 import com.mashiverse.utils.helpers.isImageAnimated
+import data.models.DownloadType
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope

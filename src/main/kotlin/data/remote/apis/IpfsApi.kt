@@ -15,7 +15,8 @@ class IpfsApi : KoinComponent {
 
         for (attempt in 0 until maxRetries) {
             try {
-                val response = client.get(imageUrl.replace("https://ipfs.io/", "https://round-peach-hippopotamus.myfilebase.com/"))
+                val response =
+                    client.get(imageUrl.replace("https://ipfs.io/", "https://round-peach-hippopotamus.myfilebase.com/"))
 
                 if (response.status == HttpStatusCode.OK) {
                     val bytes = response.bodyAsBytes()
