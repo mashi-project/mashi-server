@@ -18,11 +18,14 @@ import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.koin.ktor.ext.inject
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
 data class HistoryItemResponse(
@@ -38,6 +41,12 @@ data class HistoryPageResponse(
     val items: List<HistoryItemResponse>,
     val hasNextPage: Boolean
 )
+
+// Background scope for slow mashup generation (GIFs), independent of the HTTP request lifecycle
+private val generateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+// Tracks "wallet:type" jobs currently running so retries/duplicates are ignored
+private val inFlight = ConcurrentHashMap.newKeySet<String>()
 
 fun Application.mashiRoutes() {
     val userDao by inject<UserDao>()
@@ -90,7 +99,6 @@ fun Application.mashiRoutes() {
                 val hasNextPage = historyList.size > limit
                 val actualList = if (hasNextPage) historyList.dropLast(1) else historyList
 
-                // Map records to response objects
                 val responseItems = actualList.map { record ->
                     val detectedType = if (record.image != null) getImageType(record.image) else ImageType.UNKNOWN
 
@@ -99,16 +107,16 @@ fun Application.mashiRoutes() {
                         wallet = record.wallet,
                         imageUrl = "https://katzemon.com/api/mashi/app/history/image/${record.id}",
                         timestamp = record.timestamp.toString(),
-                        imageType = detectedType.name // <-- Fix: use .name instead of converting the whole record to a string
+                        imageType = detectedType.name
                     )
                 }
 
-                val response = HistoryPageResponse(
-                    items = responseItems,
-                    hasNextPage = hasNextPage
+                call.respond(
+                    HistoryPageResponse(
+                        items = responseItems,
+                        hasNextPage = hasNextPage
+                    )
                 )
-
-                call.respond(response)
             } catch (e: Exception) {
                 println(e.localizedMessage)
                 call.respond(HttpStatusCode.InternalServerError)
@@ -223,41 +231,55 @@ fun Application.mashiRoutes() {
         get("/api/mashi/app/generate/{wallet_id}") {
             try {
                 val walletId = call.parameters["wallet_id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                val type = DownloadType.valueOf(call.parameters["type"] ?: ImageType.PNG.name)
-                print(type)
+
+                val type = try {
+                    DownloadType.valueOf(call.parameters["type"] ?: ImageType.PNG.name)
+                } catch (e: IllegalArgumentException) {
+                    return@get call.respond(HttpStatusCode.BadRequest, "Invalid type")
+                }
                 val discord = call.parameters["discord"].toBoolean()
 
-                val data = imageService.requestCompositeData(wallet = walletId, downloadType = type)
+                val key = "$walletId:${type.name}"
 
-                if (discord) {
-                    val job =
-                        async { MashiBot.getInstance().sendMashup(data = data, downloadType = type, wallet = walletId) }
-                    awaitAll(job)
+                // add() returns false if the key is already present -> duplicate/retry
+                if (!inFlight.add(key)) {
+                    return@get call.respond(HttpStatusCode.Accepted, "Already generating")
                 }
 
-                try {
-                    val topicName = walletId // Ensure your mobile app subscribes to this topic
-                    val fcmMessage = Message.builder()
-                        .setTopic(topicName)
-                        .setNotification(
-                            Notification.builder()
-                                .setTitle("Mashup Ready! 🎉")
-                                .setBody("See it in history tab")
+                generateScope.launch {
+                    try {
+                        val data = imageService.requestCompositeData(wallet = walletId, downloadType = type)
+
+                        if (discord) {
+                            MashiBot.getInstance().sendMashup(data = data, downloadType = type, wallet = walletId)
+                        }
+
+                        // Ensure your mobile app subscribes to this topic (walletId)
+                        runCatching {
+                            val fcmMessage = Message.builder()
+                                .setTopic(walletId)
+                                .setNotification(
+                                    Notification.builder()
+                                        .setTitle("Mashup Ready! 🎉")
+                                        .setBody("See it in history tab")
+                                        .build()
+                                )
+                                .putData("walletId", walletId)
+                                .putData("type", type.name)
                                 .build()
-                        )
-                        .putData("walletId", walletId)
-                        .putData("type", type.name)
-                        .build()
-
-                    FirebaseMessaging.getInstance().send(fcmMessage)
-                } catch (e: Exception) {
-                    System.err.println("Failed to send FCM notification: ${e.message}")
+                            FirebaseMessaging.getInstance().send(fcmMessage)
+                        }.onFailure {
+                            System.err.println("Failed to send FCM notification: ${it.message}")
+                        }
+                    } catch (e: Exception) {
+                        println("Generate failed for $key: ${e.localizedMessage}")
+                    } finally {
+                        inFlight.remove(key)
+                    }
                 }
-                // -------------------------------------------------------
 
-                call.respond(HttpStatusCode.OK)
-
-                call.respond(HttpStatusCode.OK)
+                // Respond right away; the app is notified via FCM when the mashup is ready
+                call.respond(HttpStatusCode.Accepted)
             } catch (e: Exception) {
                 println(e.localizedMessage)
                 call.respond(HttpStatusCode.InternalServerError)
