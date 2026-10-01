@@ -76,7 +76,7 @@ class ImageRepo : KoinComponent {
 
                 if (imageType == ImageType.SVG) {
                     data = replaceColors(
-                        data = data, body = colors.base, eyes = colors.eyes, hair = colors.eyes // or colors.hair
+                        data = data, body = colors.base, eyes = colors.eyes, hair = colors.hair
                     )
                 }
 
