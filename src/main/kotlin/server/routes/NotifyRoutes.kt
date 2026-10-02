@@ -7,40 +7,36 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
 
 fun Application.notifyRoutes() {
-
     routing {
         post("/api/mashi/release_notify") {
-            try {
-                val data = call.receive<NotifyDto>()
-                print(data)
-
-                val job = async { MashiBot.getInstance().notify(data) }
-                awaitAll(job)
-
-                call.respond(HttpStatusCode.OK)
-            } catch (e: Exception) {
-                e.printStackTrace()
-                call.respond(HttpStatusCode.InternalServerError, mapOf("message" to (e.message ?: "Unknown error")))
-            }
+            handleNotify(call, isRelease = true)
         }
 
         post("/api/mashi/approval_notify") {
-            try {
-                val data = call.receive<NotifyDto>()
-                print(data)
-
-                val job = async { MashiBot.getInstance().notify(data, isRelease = false) }
-                awaitAll(job)
-
-                call.respond(HttpStatusCode.OK)
-            } catch (e: Exception) {
-                e.printStackTrace()
-                call.respond(HttpStatusCode.InternalServerError)
-            }
+            handleNotify(call, isRelease = false)
         }
+    }
+}
+
+private suspend fun handleNotify(call: ApplicationCall, isRelease: Boolean) {
+    try {
+        val data = call.receive<NotifyDto>()
+        println(data)
+
+        // Direct call: no need for async/awaitAll around a single suspend function
+        MashiBot.getInstance().notify(data, isRelease)
+
+        call.respond(HttpStatusCode.OK)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        e.printStackTrace()
+        call.respond(
+            HttpStatusCode.InternalServerError,
+            mapOf("message" to (e.message ?: e::class.simpleName ?: "Unknown error"))
+        )
     }
 }

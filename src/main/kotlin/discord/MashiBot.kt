@@ -21,6 +21,7 @@ import dev.kord.rest.builder.message.embed
 import images.services.ImageService
 import io.ktor.client.request.forms.*
 import io.ktor.utils.io.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -57,60 +58,98 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
         RebootModule(kord)
     }
 
+    /** Converts ipfs://CID/path into a public gateway URL. */
+    private fun ipfsToGatewayUrl(ipfsUrl: String, gateway: String = "https://round-peach-hippopotamus.myfilebase.com/ipfs/"): String =
+        gateway + ipfsUrl.removePrefix("ipfs://")
+
+    private suspend fun reportToTestChannel(message: String) {
+        try {
+            kord.getChannelOf<TextChannel>(Snowflake(TEST_CHANNEL_ID))?.createMessage(message.take(1900))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            println("Failed to report to test channel: ${e::class.simpleName}: ${e.message}")
+        }
+    }
+
     suspend fun notify(data: NotifyDto, isRelease: Boolean = true) {
         try {
             val channelId = Snowflake(if (isRelease) RELEASES_CHANNEL_ID else APPROVALS_CHANNEL_ID)
-            val channel = kord.getChannelOf<TextChannel>(channelId) ?: return
+            val channel = kord.getChannelOf<TextChannel>(channelId) ?: run {
+                reportToTestChannel("Notify: channel $channelId not found for ${data.docId}")
+                return
+            }
             val roleId = Snowflake(if (isRelease) RELEASES_ROLE_ID else APPROVALS_ROLE_ID)
+
+            // 1. Try to get the image bytes (generated GIF or static composite)
+            var bytes: ByteArray? = null
+            var fileName = "embed_image.png"
 
             try {
                 val isAnyAnimated = animService.checkIfAnyAnimated(data)
 
-                // 1. Fetch file byte data and assign the correct filename extension
-                val (bytes, fileName) = if (!isAnyAnimated) {
-                    // Direct suspend call; no need for coroutineScope/async for a single request
-                    val composite = ipfsApi.getImageSrc(imageUrl = data.assets.composite, maxRetries = 5)
-                    composite to "embed_image.png"
-                } else {
-                    val anim = animService.generateAnim(data)
-                    anim to "embed_image.gif"
+                if (isAnyAnimated) {
+                    bytes = animService.generateAnim(data)
+                    fileName = "embed_image.gif"
                 }
 
-                // 2. Send message if image payload was successfully retrieved
-                if (bytes != null) {
-                    channel.createMessage {
-                        content = "<@&$roleId>"
-
-                        addFile(
-                            name = fileName,
-                            contentProvider = ChannelProvider(size = bytes.size.toLong()) {
-                                ByteReadChannel(bytes)
-                            }
-                        )
-
-                        embed {
-                            val builtEmbed = getNotifyEmbed(data, isRelease = isRelease)
-                            title = builtEmbed.title
-                            url = builtEmbed.url
-                            color = builtEmbed.color
-                            image = "attachment://$fileName"
-                            footer = builtEmbed.footer
-                            fields = builtEmbed.fields
-                        }
-
-                        allowedMentions {
-                            roles.add(roleId)
-                        }
-                    }
+                // Static case, or the animation failed: fall back to the composite
+                if (bytes == null) {
+                    bytes = ipfsApi.getImageSrc(imageUrl = data.assets.composite, maxRetries = 5)
+                    fileName = "embed_image.png"
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                // Log inner block exceptions or report them to your monitoring service
-                println("Error generating media for notification: ${e.message}")
+                println("Error generating media for ${data.docId}: ${e::class.simpleName}: ${e.message}")
+                e.printStackTrace()
             }
+
+            // 2. Send the message (attachment if we have bytes, otherwise gateway URL)
+            val imageBytes = bytes
+            if (imageBytes == null) {
+                println("No image bytes for docId=${data.docId}, falling back to gateway URL")
+                reportToTestChannel(
+                    "Notify: image fetch failed for ${data.docId} (${data.title}), used gateway fallback"
+                )
+            }
+
+            channel.createMessage {
+                content = "<@&$roleId>"
+
+                if (imageBytes != null) {
+                    addFile(
+                        name = fileName,
+                        contentProvider = ChannelProvider(size = imageBytes.size.toLong()) {
+                            ByteReadChannel(imageBytes)
+                        }
+                    )
+                }
+
+                embed {
+                    val builtEmbed = getNotifyEmbed(data, isRelease = isRelease)
+                    title = builtEmbed.title
+                    url = builtEmbed.url
+                    color = builtEmbed.color
+                    image = if (imageBytes != null) {
+                        "attachment://$fileName"
+                    } else {
+                        ipfsToGatewayUrl(data.assets.composite)
+                    }
+                    footer = builtEmbed.footer
+                    fields = builtEmbed.fields
+                }
+
+                allowedMentions {
+                    roles.add(roleId)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            println(e)
-            val testChannel = kord.getChannelOf<TextChannel>(Snowflake(TEST_CHANNEL_ID))
-            testChannel?.createMessage("Notify: ${e.message} for $data")
+            println("Notify failed for ${data.docId}: ${e::class.simpleName}: ${e.message}")
+            e.printStackTrace()
+            reportToTestChannel("Notify: ${e::class.simpleName}: ${e.message} for $data")
         }
     }
 
@@ -162,10 +201,11 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
                 }
             }
 
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            println(e)
-            val testChannel = kord.getChannelOf<TextChannel>(Snowflake(TEST_CHANNEL_ID))
-            testChannel?.createMessage("Notify: ${e.message} for wallet $wallet")
+            println("sendMashup failed for $wallet: ${e::class.simpleName}: ${e.message}")
+            reportToTestChannel("Mashup: ${e::class.simpleName}: ${e.message} for wallet $wallet")
         }
     }
 }
