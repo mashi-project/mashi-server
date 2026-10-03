@@ -1,5 +1,7 @@
 package com.mashiverse.server.routes
 
+import com.google.firebase.messaging.ApnsConfig
+import com.google.firebase.messaging.Aps
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.Message
 import com.google.firebase.messaging.Notification
@@ -153,11 +155,17 @@ fun Application.mashiRoutes() {
                         // Ensure your mobile app subscribes to this topic (walletId)
                         runCatching {
                             val fcmMessage = Message.builder()
-                                .setTopic(walletId)
+                                .setTopic(walletId.lowercase())
                                 .setNotification(
                                     Notification.builder()
                                         .setTitle("Mashup Ready! 🎉")
                                         .setBody("You can download/share it on history tab")
+                                        .build()
+                                )
+                                .setApnsConfig(
+                                    ApnsConfig.builder()
+                                        .putHeader("apns-priority", "10")
+                                        .setAps(Aps.builder().setSound("default").build())
                                         .build()
                                 )
                                 .putData("walletId", walletId)

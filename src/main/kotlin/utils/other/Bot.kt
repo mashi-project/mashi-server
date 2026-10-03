@@ -34,7 +34,7 @@ fun Application.bot() {
 
 fun initFirebase() {
     if (FirebaseApp.getApps().isEmpty()) {
-        val serviceAccountFile = File("mashis-firebase-adminsdk-fbsvc-83530f89e4.json")
+        val serviceAccountFile = File("mashis-firebase-adminsdk-fbsvc-2bfb99f3d9.json")
         val options = FirebaseOptions.builder()
             .setCredentials(GoogleCredentials.fromStream(serviceAccountFile.inputStream()))
             .build()
