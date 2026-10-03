@@ -157,7 +157,7 @@ fun Application.mashiRoutes() {
                                 .setNotification(
                                     Notification.builder()
                                         .setTitle("Mashup Ready! 🎉")
-                                        .setBody("See it in history tab")
+                                        .setBody("You can download/share it on history tab")
                                         .build()
                                 )
                                 .putData("walletId", walletId)
