@@ -6,6 +6,7 @@ import dev.kord.core.behavior.interaction.response.respond
 import dev.kord.core.event.interaction.ChatInputCommandInteractionCreateEvent
 import dev.kord.core.on
 import dev.kord.rest.builder.interaction.string
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -27,6 +28,10 @@ class WalletModule(private val kord: Kord) : KoinComponent {
             kord.createGlobalChatInputCommand("disconnect_wallet", "Disconnect wallet") {
                 dmPermission = true
             }
+            kord.createGlobalChatInputCommand("resolve_wallet", "Resolves wallet by Discord ID") {
+                dmPermission = true
+                string("discord_id", "Discord id on user right click") { required = true }
+            }
         }
     }
 
@@ -35,7 +40,25 @@ class WalletModule(private val kord: Kord) : KoinComponent {
             when (interaction.command.rootName) {
                 "connect_wallet" -> handleConnectWallet(this)
                 "disconnect_wallet" -> handleDisconnectWallet(this)
+                "resolve_wallet" -> handleResolveWallet(this)
             }
+        }
+    }
+
+    private suspend fun handleResolveWallet(event: ChatInputCommandInteractionCreateEvent) = coroutineScope {
+        try {
+            val interaction = event.interaction
+            val discordId = interaction.command.options["discord_id"]!!.value.toString()
+            val response = interaction.deferEphemeralResponse()
+
+            val wallet = userDao.getWallet(userId = discordId.toLong())
+            if (wallet != null) {
+                response.respond { content = wallet }
+            } else {
+                response.respond { content = "Wallet not found" }
+            }
+        } catch (e: Exception) {
+            print(e.message)
         }
     }
 
