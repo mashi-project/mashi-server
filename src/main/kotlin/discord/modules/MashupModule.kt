@@ -41,7 +41,6 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                 string("image", "Image type") {
                     choice("PNG", "PNG")
                     choice("GIF", "GIF")
-                    choice("SMALLER_GIF", "SMALLER_GIF")
                 }
             }
             kord.createGlobalChatInputCommand("delete_mashup", "Deletes mashup") {
@@ -86,11 +85,6 @@ class MashupModule(private val kord: Kord) : KoinComponent {
             // 2. Fetch the assembled data bytes safely
             var data = imageService.requestCompositeData(wallet, downloadType = downloadType)
                 ?: throw IllegalStateException("Failed to generate composite image data")
-
-            if (data.second > 8 * 1024 * 1024 && downloadType == DownloadType.GIF) {
-                data = imageService.requestCompositeData(wallet, downloadType = DownloadType.SMALLER_GIF)
-                    ?: throw IllegalStateException("Failed to generate composite image data")
-            }
 
             val (bytes, size) = data
 

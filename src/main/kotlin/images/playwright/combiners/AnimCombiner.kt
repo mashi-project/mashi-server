@@ -1,6 +1,9 @@
 ﻿package com.mashiverse.images.playwright.combiners
 
-import com.mashiverse.configs.*
+import com.mashiverse.configs.DURATION_LIMIT_SEC
+import com.mashiverse.configs.GIF_HEIGHT
+import com.mashiverse.configs.GIF_WIDTH
+import com.mashiverse.configs.PLAYBACK_FPS
 import com.mashiverse.data.db.daos.HistoryDao
 import com.mashiverse.images.playwright.PlaywrightPool
 import com.mashiverse.utils.helpers.executeCmd
@@ -20,10 +23,9 @@ class AnimCombiner : KoinComponent {
     private val historyDao by inject<HistoryDao>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    suspend fun generateAnim(tempDir: Path, isLowerRes: Boolean = false, wallet: String? = null): Path {
-        val targetDurationSec = DURATION_LIMIT_SEC
-        val width = if (isLowerRes) LOWER_RES_GIF_WIDTH else GIF_WIDTH
-        val height = if (isLowerRes) LOWER_RES_GIF_HEIGHT else GIF_HEIGHT
+    suspend fun generateAnim(tempDir: Path, wallet: String? = null): Path {
+        val width = GIF_WIDTH
+        val height = GIF_HEIGHT
 
         val imageUrls = readImageFiles(tempDir)
         val htmlContent = prepareHtml(
@@ -46,7 +48,7 @@ class AnimCombiner : KoinComponent {
                 val warmupPage = ctx.newPage()
                 warmupPage.setContent(htmlContent)
                 warmupPage.waitForLoadState(LoadState.LOAD)
-                preparePage(warmupPage, if (isLowerRes) getLowerResGifArgs() else getGifArgs())
+                preparePage(warmupPage, getGifArgs())
                 warmupPage.content()
             }
 
@@ -78,7 +80,7 @@ class AnimCombiner : KoinComponent {
                 startOffsetSec = (System.nanoTime() - recordingStartedAt) / 1_000_000_000.0
 
                 // Total sleep duration matching exact frame capture window
-                val totalSleepMs = ((targetDurationSec + startOffsetSec + 0.3) * 1000).toLong()
+                val totalSleepMs = ((DURATION_LIMIT_SEC + startOffsetSec + 0.3) * 1000).toLong()
                 Thread.sleep(totalSleepMs)
 
                 page.close()
@@ -94,9 +96,7 @@ class AnimCombiner : KoinComponent {
             makeGifFromVideo(
                 videoPath = videoFile.toPath(),
                 tempDir = tempDir,
-                durationSec = targetDurationSec,
-                startOffsetSec = startOffsetSec,
-                isLowerRes = isLowerRes
+                startOffsetSec = startOffsetSec
             )
         }
 
@@ -121,17 +121,15 @@ class AnimCombiner : KoinComponent {
     private fun makeGifFromVideo(
         videoPath: Path,
         tempDir: Path,
-        durationSec: Double,
         startOffsetSec: Double,
-        isLowerRes: Boolean = false
     ): Path {
         val gifPath = tempDir.resolve("result.gif")
-        val width = if (isLowerRes) LOWER_RES_GIF_WIDTH else GIF_WIDTH
-        val height = if (isLowerRes) LOWER_RES_GIF_HEIGHT else GIF_HEIGHT
+        val width = GIF_WIDTH
+        val height = GIF_HEIGHT
 
         // Format seek accurately
         val seekArg = String.format(java.util.Locale.US, "%.3f", startOffsetSec)
-        val durationArg = String.format(java.util.Locale.US, "%.3f", durationSec)
+        val durationArg = String.format(java.util.Locale.US, "%.3f", DURATION_LIMIT_SEC)
 
         // Enforce nearest-neighbor scaling inside FFmpeg filter chain to prevent pixel blurring
         val baseFilter =

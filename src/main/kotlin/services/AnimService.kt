@@ -81,7 +81,7 @@ class AnimService : KoinComponent {
 
             imageRepo.getImage(
                 mashup = mashup,
-                downloadType = DownloadType.SMALLER_GIF
+                downloadType = DownloadType.GIF
             )
         } catch (e: CancellationException) {
             throw e

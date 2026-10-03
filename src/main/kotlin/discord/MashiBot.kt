@@ -59,7 +59,10 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
     }
 
     /** Converts ipfs://CID/path into a public gateway URL. */
-    private fun ipfsToGatewayUrl(ipfsUrl: String, gateway: String = "https://round-peach-hippopotamus.myfilebase.com/ipfs/"): String =
+    private fun ipfsToGatewayUrl(
+        ipfsUrl: String,
+        gateway: String = "https://round-peach-hippopotamus.myfilebase.com/ipfs/"
+    ): String =
         gateway + ipfsUrl.removePrefix("ipfs://")
 
     private suspend fun reportToTestChannel(message: String) {
@@ -167,13 +170,8 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
             val filename = "composite$ext"
 
             // 2. Safely unwrap or fetch alternative data if too large
-            var resolvedData = data ?: imageService.requestCompositeData(wallet, downloadType = downloadType)
+            val resolvedData = data ?: imageService.requestCompositeData(wallet, downloadType = downloadType)
             ?: throw IllegalStateException("Failed to generate composite image data")
-
-            if (resolvedData.second > 8 * 1024 * 1024 && downloadType == DownloadType.GIF) {
-                resolvedData = imageService.requestCompositeData(wallet, downloadType = DownloadType.SMALLER_GIF)
-                    ?: throw IllegalStateException("Failed to generate composite image data")
-            }
 
             val (bytes, size) = resolvedData
 
