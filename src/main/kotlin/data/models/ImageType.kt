@@ -6,5 +6,6 @@ enum class ImageType {
     GIF,
     WEBP,
     SVG,
+    JPEG,
     UNKNOWN
 }
