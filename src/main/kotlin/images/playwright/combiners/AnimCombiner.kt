@@ -20,6 +20,13 @@ import kotlin.io.path.readBytes
 
 class AnimCombiner : KoinComponent {
 
+    companion object {
+        // Background color used in the HTML (html, body { background: #111214; })
+        // and keyed out to transparent in ffmpeg. Both must match.
+        const val KEY_HEX = "111214"
+        const val KEY_SIMILARITY = "0.02"
+    }
+
     private val historyDao by inject<HistoryDao>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -131,22 +138,26 @@ class AnimCombiner : KoinComponent {
         val seekArg = String.format(java.util.Locale.US, "%.3f", startOffsetSec)
         val durationArg = String.format(java.util.Locale.US, "%.3f", DURATION_LIMIT_SEC)
 
-        // Enforce nearest-neighbor scaling inside FFmpeg filter chain to prevent pixel blurring.
-        // format=rgb24 gives palettegen full-precision input instead of subsampled yuv.
-        val baseFilter =
-            "fps=$PLAYBACK_FPS,scale=$width:$height:flags=neighbor:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2,setsar=1,format=rgb24"
+        val keyColor = "0x$KEY_HEX"
 
-        // Background-focused palette settings:
-        // 1. palettegen stats_mode=full: one global palette weighted by pixel count over all frames,
-        //    so the large background areas get the most palette entries (accurate colors, less banding).
-        //    reserve_transparent=0 keeps all 256 slots for real colors.
-        // 2. paletteuse dither=bayer: ordered dithering is a fixed pattern, so the background stays
-        //    perfectly steady between frames (error diffusion like sierra2_4a shimmers on gradients).
-        //    bayer_scale=3 is a fine pattern that still removes banding; lower = cleaner, higher = smoother gradients.
-        // 3. diff_mode=rectangle only re-encodes the changed area, so the static background is untouched.
+        // Nearest-neighbor scaling to prevent pixel blurring.
+        // pad uses the key color so letterbox bars become transparent too.
+        // format=rgba converts to full-precision RGB with an alpha channel BEFORE colorkey,
+        // so the key runs on RGB (not subsampled yuv) and keyed pixels get alpha = 0.
+        val baseFilter =
+            "fps=$PLAYBACK_FPS," +
+                    "scale=$width:$height:flags=neighbor:force_original_aspect_ratio=decrease," +
+                    "pad=$width:$height:(ow-iw)/2:(oh-ih)/2:color=$keyColor," +
+                    "setsar=1," +
+                    "format=rgba," +
+                    "colorkey=$keyColor:$KEY_SIMILARITY:0.0"
+
+        // palettegen stats_mode=diff: only pixels that CHANGE between frames count toward the palette,
+        // so the moving WebP content gets the palette entries and the static layers get fewer.
+        // Keyed (transparent) areas are static, so they no longer compete for colors.
         val filterGraph = "[0:v]$baseFilter,split[stream][paletteSource];" +
-                "[paletteSource]palettegen=max_colors=256:stats_mode=full:reserve_transparent=0[palette];" +
-                "[stream][palette]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle"
+                "[paletteSource]palettegen=max_colors=256:stats_mode=diff:reserve_transparent=1[palette];" +
+                "[stream][palette]paletteuse=dither=bayer:bayer_scale=3:alpha_threshold=128:diff_mode=rectangle"
 
         executeCmd(
             "ffmpeg",

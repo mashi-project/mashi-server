@@ -21,6 +21,7 @@ fun prepareHtml(
     urls: List<String>,
     width: Int,
     height: Int,
+    isTransparent: Boolean = false
 ): String {
     val imageTags = urls.mapIndexed { i, url ->
         """
@@ -45,7 +46,7 @@ fun prepareHtml(
                     }
                 </style>
             </head>
-            <body style="margin:0; width:${width}px; height:${height}px; background:#111214; overflow:hidden;">
+            <body style="margin:0; width:${width}px; height:${height}px; background:${if (isTransparent) "transparent" else "#111214"}; overflow:hidden;">
                 $imageTags
             </body>
         </html>

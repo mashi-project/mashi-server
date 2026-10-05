@@ -35,7 +35,8 @@ class CompositeCombiner : KoinComponent {
         val htmlContent = prepareHtml(
             urls = imageUrls,
             width = PNG_WIDTH,
-            height = PNG_HEIGHT
+            height = PNG_HEIGHT,
+            isTransparent = true
         )
 
         val imageBytes = PlaywrightPool.execute { browser ->
@@ -147,7 +148,7 @@ class CompositeCombiner : KoinComponent {
                 return@execute page.screenshot(
                     Page.ScreenshotOptions()
                         .setType(ScreenshotType.PNG)
-                        .setOmitBackground(false)
+                        .setOmitBackground(true)
                 )
             }
         }
