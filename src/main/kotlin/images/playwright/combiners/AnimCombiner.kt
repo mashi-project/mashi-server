@@ -131,17 +131,22 @@ class AnimCombiner : KoinComponent {
         val seekArg = String.format(java.util.Locale.US, "%.3f", startOffsetSec)
         val durationArg = String.format(java.util.Locale.US, "%.3f", DURATION_LIMIT_SEC)
 
-        // Enforce nearest-neighbor scaling inside FFmpeg filter chain to prevent pixel blurring
+        // Enforce nearest-neighbor scaling inside FFmpeg filter chain to prevent pixel blurring.
+        // format=rgb24 gives palettegen full-precision input instead of subsampled yuv.
         val baseFilter =
-            "fps=$PLAYBACK_FPS,scale=$width:$height:flags=neighbor:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2,setsar=1"
+            "fps=$PLAYBACK_FPS,scale=$width:$height:flags=neighbor:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2,setsar=1,format=rgb24"
 
-        // Updated filter graph:
-        // 1. stats_mode=full ensures consistent color palette across loop boundary
-        // 2. dither=sierra2_4a or bayer with lower scale prevents patterned shimmering
-        // 3. diff_mode=rectangle prevents ghosting artifacts
+        // Background-focused palette settings:
+        // 1. palettegen stats_mode=full: one global palette weighted by pixel count over all frames,
+        //    so the large background areas get the most palette entries (accurate colors, less banding).
+        //    reserve_transparent=0 keeps all 256 slots for real colors.
+        // 2. paletteuse dither=bayer: ordered dithering is a fixed pattern, so the background stays
+        //    perfectly steady between frames (error diffusion like sierra2_4a shimmers on gradients).
+        //    bayer_scale=3 is a fine pattern that still removes banding; lower = cleaner, higher = smoother gradients.
+        // 3. diff_mode=rectangle only re-encodes the changed area, so the static background is untouched.
         val filterGraph = "[0:v]$baseFilter,split[stream][paletteSource];" +
-                "[paletteSource]palettegen=max_colors=256:stats_mode=full[palette];" +
-                "[stream][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle"
+                "[paletteSource]palettegen=max_colors=256:stats_mode=full:reserve_transparent=0[palette];" +
+                "[stream][palette]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle"
 
         executeCmd(
             "ffmpeg",

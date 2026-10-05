@@ -45,7 +45,7 @@ fun prepareHtml(
                     }
                 </style>
             </head>
-            <body style="margin:0; width:${width}px; height:${height}px; background:transparent; overflow:hidden;">
+            <body style="margin:0; width:${width}px; height:${height}px; background:#111214; overflow:hidden;">
                 $imageTags
             </body>
         </html>
