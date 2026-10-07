@@ -23,7 +23,6 @@ class WalletModule(private val kord: Kord) : KoinComponent {
         kord.launch {
             kord.createGlobalChatInputCommand("connect_wallet", "Connect wallet") {
                 dmPermission = true
-                string("wallet", "Wallet") { required = true }
             }
             kord.createGlobalChatInputCommand("disconnect_wallet", "Disconnect wallet") {
                 dmPermission = true
@@ -45,13 +44,33 @@ class WalletModule(private val kord: Kord) : KoinComponent {
         }
     }
 
+    private suspend fun handleConnectWallet(event: ChatInputCommandInteractionCreateEvent) {
+        val interaction = event.interaction
+        val response = interaction.deferEphemeralResponse()
+        val discordId = interaction.user.id.value
+
+        try {
+            if (userDao.getWallet(discordId.toLong()) != null) {
+                response.respond { content = "Wallet already connected" }
+                return
+            }
+
+            response.respond {
+                content = "Link: https://katzemon.com/wallet/connect/$discordId"
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            response.respond { content = "Something went wrong" }
+        }
+    }
+
     private suspend fun handleResolveWallet(event: ChatInputCommandInteractionCreateEvent) = coroutineScope {
         try {
             val interaction = event.interaction
-            val discordId = interaction.command.options["discord_id"]!!.value.toString()
+            val userId = interaction.user.id.value.toLong()
             val response = interaction.deferEphemeralResponse()
 
-            val wallet = userDao.getWallet(userId = discordId.toLong())
+            val wallet = userDao.getWallet(userId = userId)
             if (wallet != null) {
                 response.respond { content = wallet }
             } else {
@@ -59,39 +78,6 @@ class WalletModule(private val kord: Kord) : KoinComponent {
             }
         } catch (e: Exception) {
             print(e.message)
-        }
-    }
-
-    private suspend fun handleConnectWallet(event: ChatInputCommandInteractionCreateEvent) {
-        val interaction = event.interaction
-        val wallet = interaction.command.options["wallet"]!!.value.toString()
-        val response = interaction.deferEphemeralResponse()
-
-        try {
-            if (wallet.length != 42) {
-                response.respond { content = "Invalid wallet" }
-                return
-            }
-
-            val userId = interaction.user.id.value.toLong()
-            val hasWallet = userDao.getWallet(userId) != null
-            if (hasWallet) {
-                response.respond { content = "You already have wallet" }
-                return
-            }
-
-            val isAnotherUserWallet = userDao.isExist(wallet)
-            if (isAnotherUserWallet) {
-                response.respond { content = "Wallet already taken" }
-                return
-            }
-
-            userDao.connectWallet(userId, wallet.lowercase())
-            response.respond { content = "Wallet connected" }
-
-        } catch (e: Exception) {
-            println(e)
-            response.respond { content = "Something went wrong" }
         }
     }
 

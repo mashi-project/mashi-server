@@ -17,12 +17,14 @@ import data.models.DownloadType
 import images.services.ImageService
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.request.receive
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
 import org.koin.ktor.ext.inject
 import java.util.concurrent.ConcurrentHashMap
 
@@ -33,6 +35,16 @@ private val generateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 // Tracks "wallet:type" jobs currently running so retries/duplicates are ignored
 private val inFlight = ConcurrentHashMap.newKeySet<String>()
 
+@Serializable
+data class WalletConnectRequest(
+    val address: String,
+    val params: Map<String, String> = emptyMap(),
+    val message: String? = null,
+    val signature: String? = null,
+)
+
+private val WALLET_REGEX = Regex("^0x[a-fA-F0-9]{40}$")
+
 fun Application.mashiRoutes() {
     val userDao by inject<UserDao>()
     val imageDao by inject<ImageDao>()
@@ -40,6 +52,34 @@ fun Application.mashiRoutes() {
     val imageService by inject<ImageService>()
 
     routing {
+        post("/api/mashi/app/wallet/connect") {
+            try {
+                val body = call.receive<WalletConnectRequest>()
+
+                val wallet = body.address.trim()
+                if (!WALLET_REGEX.matches(wallet)) {
+                    return@post call.respond(HttpStatusCode.BadRequest, "Invalid wallet")
+                }
+
+                val userId = body.params["userId"]?.toLongOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, "Missing or invalid userId")
+
+                if (userDao.getWallet(userId) != null) {
+                    return@post call.respond(HttpStatusCode.Conflict, "You already have wallet")
+                }
+
+                if (userDao.isExist(wallet.lowercase())) {
+                    return@post call.respond(HttpStatusCode.Conflict, "Wallet already taken")
+                }
+
+                userDao.connectWallet(userId, wallet.lowercase())
+                call.respond(HttpStatusCode.OK, "Wallet connected")
+            } catch (e: Exception) {
+                println(e.localizedMessage)
+                call.respond(HttpStatusCode.InternalServerError, "Something went wrong")
+            }
+        }
+
         get("/api/mashi/app/wallet/{user_id}") {
             try {
                 val userId = call.parameters["user_id"] ?: return@get call.respond(HttpStatusCode.BadRequest)

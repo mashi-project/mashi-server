@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect Wallet</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0f1115; color: #eee; }
+    main { width: min(92vw, 380px); text-align: center; padding: 24px; }
+    h1 { font-size: 1.3rem; margin: 0 0 8px; }
+    p { color: #9aa0aa; font-size: .95rem; }
+    #status { margin-top: 16px; min-height: 1.4em; font-size: .9rem; word-break: break-all; }
+    .ok { color: #4ade80; } .err { color: #f87171; }
+    .btn-wrap { display: flex; justify-content: center; margin-top: 16px; }
+    .btn-wrap[hidden] { display: none; }
+    button { margin-top: 12px; padding: 10px 18px; border-radius: 10px; border: 0; background: #3b82f6; color: #fff; font-size: 1rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+<main>
+  <h1 id="title">Sign in with your wallet</h1>
+  <p id="done-hint" hidden>You can close this page and return to the app.</p>
+  <div class="btn-wrap" id="connect-wrap"><appkit-button></appkit-button></div>
+  <div id="status"></div>
+  <button id="retry" hidden>Retry</button>
+</main>
+
+<script type="module">
+  // ================= CONFIG =================
+  const PROJECT_ID = '64e5fcdc68005f09c6316af60084ddab';
+  const SERVER_URL = '/api/mashi/app/wallet/connect'; // same origin as this page
+  const REQUIRE_SIGNATURE = false; // true = also send a signed message (proves ownership)
+  // Pinned wallets, shown first in this order
+  const PINNED_WALLETS = [
+    'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96', // MetaMask
+    'fd20dc426fb37566d803205b19bbc1d4096b248ac04548e3cfb6b3a38bd033aa', // Base / Coinbase Wallet
+  ];
+  // ==========================================
+
+  import { createAppKit } from 'https://esm.sh/@reown/appkit';
+  import { EthersAdapter } from 'https://esm.sh/@reown/appkit-adapter-ethers';
+  import { mainnet } from 'https://esm.sh/@reown/appkit/networks';
+
+  const statusEl = document.getElementById('status');
+  const retryBtn = document.getElementById('retry');
+  const setStatus = (t, cls = '') => { statusEl.textContent = t; statusEl.className = cls; };
+
+  // Params: query string + Discord id from the path (/wallet/connect/{discord_id})
+  const urlParams = {
+    ...Object.fromEntries(new URLSearchParams(location.search)),
+    userId: decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || ''),
+  };
+
+  const modal = createAppKit({
+    adapters: [new EthersAdapter()],
+    networks: [mainnet],
+    projectId: PROJECT_ID,
+    enableCoinbase: false, // use the normal deep-link flow instead of the SDK popup
+    featuredWalletIds: PINNED_WALLETS,
+    metadata: {
+      name: 'Wallet Auth',
+      description: 'Wallet sign-in',
+      url: location.origin,
+      icons: [location.origin + '/favicon.ico'],
+      redirect: {
+        universal: location.href, // wallet returns the user to this exact page after approval
+      },
+    },
+    features: { analytics: false, email: false, socials: false, onramp: false, swaps: false },
+  });
+
+  let sent = false;
+
+  async function sendToServer(address) {
+    if (sent) return;
+    sent = true;
+    setStatus('Sending…');
+    try {
+      const body = { address, params: urlParams };
+
+      if (REQUIRE_SIGNATURE) {
+        const provider = modal.getWalletProvider();
+        const message = `Sign in to ${location.host}\nAddress: ${address}\nNonce: ${urlParams.nonce || crypto.randomUUID()}`;
+        const signature = await provider.request({ method: 'personal_sign', params: [message, address] });
+        body.message = message;
+        body.signature = signature;
+      }
+
+      const res = await fetch(SERVER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = (await res.text().catch(() => '')).trim();
+        const err = new Error(text || `Server responded ${res.status}`);
+        err.final = res.status === 409; // already linked / taken: retry won't help
+        throw err;
+      }
+      showConnected(address);
+    } catch (e) {
+      sent = false;
+      setStatus(e.message || 'Request failed', 'err');
+      retryBtn.hidden = !!e.final;
+    }
+  }
+
+  function showConnected(address) {
+    store.clear();
+    const short = address.slice(0, 6) + '…' + address.slice(-4);
+    document.getElementById('connect-wrap').hidden = true;
+    retryBtn.hidden = true;
+    document.getElementById('title').textContent = '✅ Wallet connected';
+    setStatus(short, 'ok');
+    document.getElementById('done-hint').hidden = false;
+  }
+
+  // --- Reset any old session on start (skipped when returning from the wallet app) ---
+  const FLAG = 'wc_connecting';
+  const store = {
+    get: () => { try { return sessionStorage.getItem(FLAG); } catch { return null; } },
+    set: () => { try { sessionStorage.setItem(FLAG, '1'); } catch {} },
+    clear: () => { try { sessionStorage.removeItem(FLAG); } catch {} },
+  };
+
+  // Mark "connection in progress" once the user opens the modal, so a page reload
+  // after the wallet redirect doesn't kill the fresh session.
+  modal.subscribeState((s) => { if (s.open) store.set(); });
+
+  const ready = (async () => {
+    if (store.get()) return;
+    try { await modal.disconnect(); } catch { /* nothing to disconnect */ }
+  })();
+
+  modal.subscribeAccount(async () => {
+    await ready;
+    const addr = modal.getAddress(); // re-read after reset, ignores stale restored sessions
+    if (addr) sendToServer(addr);
+  });
+
+  // Mobile browsers may suspend the page while the wallet app is open;
+  // re-check the connection when the user comes back.
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible') return;
+    await ready;
+    const addr = modal.getAddress();
+    if (addr && !sent) sendToServer(addr);
+  });
+
+  retryBtn.onclick = () => {
+    retryBtn.hidden = true;
+    const addr = modal.getAddress();
+    if (addr) sendToServer(addr); else modal.open();
+  };
+</script>
+</body>
+</html>

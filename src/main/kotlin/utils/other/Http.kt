@@ -15,6 +15,7 @@ fun Application.configureHttp() {
         allowNonSimpleContentTypes = true
 
         val prodSchemes = listOf("https")
+        allowHost("katzemon.com", schemes = prodSchemes)
         allowHost("mash-it.io", schemes = prodSchemes)
         allowHost("www.mash-it.io", schemes = prodSchemes)
         allowHost("avatar-artists-guild-dev.web.app", schemes = prodSchemes)
