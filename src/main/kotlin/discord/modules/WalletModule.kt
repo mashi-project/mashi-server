@@ -56,7 +56,7 @@ class WalletModule(private val kord: Kord) : KoinComponent {
             }
 
             response.respond {
-                content = "Link: https://katzemon.com/wallet/connect/$discordId"
+                content = "Connect here: https://katzemon.com/wallet/connect/$discordId"
             }
         } catch (e: Exception) {
             e.printStackTrace()

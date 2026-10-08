@@ -64,9 +64,9 @@ fun Application.mashiRoutes() {
                 val userId = body.params["userId"]?.toLongOrNull()
                     ?: return@post call.respond(HttpStatusCode.BadRequest, "Missing or invalid userId")
 
-                if (userDao.getWallet(userId) != null) {
-                    return@post call.respond(HttpStatusCode.Conflict, "You already have wallet")
-                }
+//                if (userDao.getWallet(userId) != null) {
+//                    return@post call.respond(HttpStatusCode.Conflict, "You already have wallet")
+//                }
 
                 if (userDao.isExist(wallet.lowercase())) {
                     return@post call.respond(HttpStatusCode.Conflict, "Wallet already taken")

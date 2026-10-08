@@ -1,158 +1,450 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Connect Wallet</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0f1115; color: #eee; }
-    main { width: min(92vw, 380px); text-align: center; padding: 24px; }
-    h1 { font-size: 1.3rem; margin: 0 0 8px; }
-    p { color: #9aa0aa; font-size: .95rem; }
-    #status { margin-top: 16px; min-height: 1.4em; font-size: .9rem; word-break: break-all; }
-    .ok { color: #4ade80; } .err { color: #f87171; }
-    .btn-wrap { display: flex; justify-content: center; margin-top: 16px; }
-    .btn-wrap[hidden] { display: none; }
-    button { margin-top: 12px; padding: 10px 18px; border-radius: 10px; border: 0; background: #3b82f6; color: #fff; font-size: 1rem; cursor: pointer; }
-  </style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Connect Wallet</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #f4f6fb;
+            --bg-glow-1: rgba(59, 130, 246, .18);
+            --bg-glow-2: rgba(139, 92, 246, .14);
+            --card: #ffffff;
+            --card-border: rgba(15, 23, 42, .08);
+            --text: #0f172a;
+            --muted: #64748b;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --ok: #16a34a;
+            --ok-bg: rgba(22, 163, 74, .1);
+            --err: #dc2626;
+            --err-bg: rgba(220, 38, 38, .1);
+            --shadow: 0 20px 50px -20px rgba(15, 23, 42, .25);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0b0d12;
+                --bg-glow-1: rgba(59, 130, 246, .22);
+                --bg-glow-2: rgba(139, 92, 246, .18);
+                --card: #151922;
+                --card-border: rgba(255, 255, 255, .08);
+                --text: #f1f5f9;
+                --muted: #94a3b8;
+                --ok: #4ade80;
+                --ok-bg: rgba(74, 222, 128, .12);
+                --err: #f87171;
+                --err-bg: rgba(248, 113, 113, .12);
+                --shadow: 0 20px 50px -20px rgba(0, 0, 0, .7);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: grid;
+            place-items: center;
+            padding: 16px;
+            background: radial-gradient(600px 400px at 15% 10%, var(--bg-glow-1), transparent 60%),
+            radial-gradient(500px 400px at 90% 90%, var(--bg-glow-2), transparent 60%),
+            var(--bg);
+            color: var(--text);
+        }
+
+        main {
+            width: min(100%, 400px);
+            text-align: center;
+            padding: 36px 28px 28px;
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            animation: rise .4s ease-out both;
+        }
+
+        @keyframes rise {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: none;
+            }
+        }
+
+        .icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 20px;
+            display: grid;
+            place-items: center;
+            border-radius: 20px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: #fff;
+            box-shadow: 0 10px 24px -8px rgba(99, 102, 241, .7);
+            transition: background .3s;
+        }
+
+        .icon svg {
+            width: 30px;
+            height: 30px;
+        }
+
+        .icon .check {
+            display: none;
+        }
+
+        main.done .icon {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            box-shadow: 0 10px 24px -8px rgba(34, 197, 94, .7);
+        }
+
+        main.done .icon .wallet {
+            display: none;
+        }
+
+        main.done .icon .check {
+            display: block;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            font-weight: 650;
+            letter-spacing: -.01em;
+            margin: 0 0 8px;
+        }
+
+        p {
+            color: var(--muted);
+            font-size: .95rem;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        .sub {
+            margin-bottom: 4px;
+        }
+
+        .btn-wrap {
+            display: flex;
+            justify-content: center;
+            margin-top: 24px;
+        }
+
+        .btn-wrap[hidden] {
+            display: none;
+        }
+
+        #status {
+            margin: 16px auto 0;
+            min-height: 1.4em;
+            font-size: .9rem;
+            word-break: break-all;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: 999px;
+            padding: 0;
+            color: var(--muted);
+        }
+
+        #status:empty {
+            display: none;
+        }
+
+        #status.ok {
+            color: var(--ok);
+            background: var(--ok-bg);
+            padding: 6px 14px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        #status.err {
+            color: var(--err);
+            background: var(--err-bg);
+            padding: 8px 14px;
+            border-radius: 12px;
+            line-height: 1.4;
+        }
+
+        #status.busy::before {
+            content: "";
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            animation: spin .7s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        #retry {
+            display: block;
+            margin: 14px auto 0;
+            padding: 10px 22px;
+            border-radius: 12px;
+            border: 0;
+            background: var(--accent);
+            color: #fff;
+            font: inherit;
+            font-size: .95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background .15s, transform .1s;
+        }
+
+        #retry[hidden] {
+            display: none;
+        }
+
+        #retry:hover {
+            background: var(--accent-hover);
+        }
+
+        #retry:active {
+            transform: scale(.97);
+        }
+
+        #retry:focus-visible {
+            outline: 3px solid color-mix(in srgb, var(--accent) 40%, transparent);
+            outline-offset: 2px;
+        }
+
+        #done-hint {
+            margin-top: 14px;
+        }
+
+        #done-hint[hidden] {
+            display: none;
+        }
+
+        .foot {
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid var(--card-border);
+            font-size: .78rem;
+            color: var(--muted);
+        }
+
+        main.done .foot {
+            display: none;
+        }
+    </style>
 </head>
 <body>
-<main>
-  <h1 id="title">Sign in with your wallet</h1>
-  <p id="done-hint" hidden>You can close this page and return to the app.</p>
-  <div class="btn-wrap" id="connect-wrap"><appkit-button></appkit-button></div>
-  <div id="status"></div>
-  <button id="retry" hidden>Retry</button>
+<main id="card">
+    <div class="icon" aria-hidden="true">
+        <svg class="wallet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 12V8a2 2 0 0 0-2-2H5a2 2 0 0 1 0-4h11"/>
+            <path d="M3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/>
+            <path d="M21 12h-4a2 2 0 0 0 0 4h4z"/>
+        </svg>
+        <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+             stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 13l4 4L19 7"/>
+        </svg>
+    </div>
+    <h1 id="title">Sign in with your wallet</h1>
+    <p class="sub" id="subtitle">Connect your wallet to link it to your account.</p>
+    <p id="done-hint" hidden>You can close this page and return to the app.</p>
+    <div class="btn-wrap" id="connect-wrap">
+        <appkit-button></appkit-button>
+    </div>
+    <div id="status" role="status" aria-live="polite"></div>
+    <button id="retry" hidden>Retry</button>
+    <div class="foot">We only read your public address. No funds are moved.</div>
 </main>
 
 <script type="module">
-  // ================= CONFIG =================
-  const PROJECT_ID = '64e5fcdc68005f09c6316af60084ddab';
-  const SERVER_URL = '/api/mashi/app/wallet/connect'; // same origin as this page
-  const REQUIRE_SIGNATURE = false; // true = also send a signed message (proves ownership)
-  // Pinned wallets, shown first in this order
-  const PINNED_WALLETS = [
-    'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96', // MetaMask
-    'fd20dc426fb37566d803205b19bbc1d4096b248ac04548e3cfb6b3a38bd033aa', // Base / Coinbase Wallet
-  ];
-  // ==========================================
+    // ================= CONFIG =================
+    const PROJECT_ID = '64e5fcdc68005f09c6316af60084ddab';
+    const SERVER_URL = '/api/mashi/app/wallet/connect'; // same origin as this page
+    const REQUIRE_SIGNATURE = false; // true = also send a signed message (proves ownership)
+    // Pinned wallets, shown first in this order
+    const PINNED_WALLETS = [
+        'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96', // MetaMask
+        'fd20dc426fb37566d803205b19bbc1d4096b248ac04548e3cfb6b3a38bd033aa', // Base / Coinbase Wallet
+    ];
+    // ==========================================
 
-  import { createAppKit } from 'https://esm.sh/@reown/appkit';
-  import { EthersAdapter } from 'https://esm.sh/@reown/appkit-adapter-ethers';
-  import { mainnet } from 'https://esm.sh/@reown/appkit/networks';
+    import {createAppKit} from 'https://esm.sh/@reown/appkit';
+    import {EthersAdapter} from 'https://esm.sh/@reown/appkit-adapter-ethers';
+    import {mainnet} from 'https://esm.sh/@reown/appkit/networks';
 
-  const statusEl = document.getElementById('status');
-  const retryBtn = document.getElementById('retry');
-  const setStatus = (t, cls = '') => { statusEl.textContent = t; statusEl.className = cls; };
+    const statusEl = document.getElementById('status');
+    const retryBtn = document.getElementById('retry');
+    const setStatus = (t, cls = '') => {
+        statusEl.textContent = t;
+        statusEl.className = cls;
+    };
 
-  // Params: query string + Discord id from the path (/wallet/connect/{discord_id})
-  const urlParams = {
-    ...Object.fromEntries(new URLSearchParams(location.search)),
-    userId: decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || ''),
-  };
+    // Params: query string + Discord id from the path (/wallet/connect/{discord_id})
+    const urlParams = {
+        ...Object.fromEntries(new URLSearchParams(location.search)),
+        userId: decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || ''),
+    };
 
-  const modal = createAppKit({
-    adapters: [new EthersAdapter()],
-    networks: [mainnet],
-    projectId: PROJECT_ID,
-    enableCoinbase: false, // use the normal deep-link flow instead of the SDK popup
-    featuredWalletIds: PINNED_WALLETS,
-    metadata: {
-      name: 'Wallet Auth',
-      description: 'Wallet sign-in',
-      url: location.origin,
-      icons: [location.origin + '/favicon.ico'],
-      redirect: {
-        universal: location.href, // wallet returns the user to this exact page after approval
-      },
-    },
-    features: { analytics: false, email: false, socials: false, onramp: false, swaps: false },
-  });
+    const modal = createAppKit({
+        adapters: [new EthersAdapter()],
+        networks: [mainnet],
+        projectId: PROJECT_ID,
+        enableCoinbase: false, // use the normal deep-link flow instead of the SDK popup
+        featuredWalletIds: PINNED_WALLETS,
+        themeMode: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+        themeVariables: {
+            '--w3m-accent': '#3b82f6',
+            '--w3m-border-radius-master': '2px',
+        },
+        metadata: {
+            name: 'Wallet Auth',
+            description: 'Wallet sign-in',
+            url: location.origin,
+            icons: [location.origin + '/favicon.ico'],
+            redirect: {
+                universal: location.href, // wallet returns the user to this exact page after approval
+            },
+        },
+        features: {analytics: false, email: false, socials: false, onramp: false, swaps: false},
+    });
 
-  let sent = false;
+    let inFlight = false;
+    let lastSent = null; // last address successfully sent to the server
 
-  async function sendToServer(address) {
-    if (sent) return;
-    sent = true;
-    setStatus('Sending…');
-    try {
-      const body = { address, params: urlParams };
+    async function sendToServer(address) {
+        if (inFlight || address === lastSent) return;
+        inFlight = true;
+        document.getElementById('done-hint').hidden = true;
+        retryBtn.hidden = true;
+        setStatus('Linking your wallet…', 'busy');
+        try {
+            const body = {address, params: urlParams};
 
-      if (REQUIRE_SIGNATURE) {
-        const provider = modal.getWalletProvider();
-        const message = `Sign in to ${location.host}\nAddress: ${address}\nNonce: ${urlParams.nonce || crypto.randomUUID()}`;
-        const signature = await provider.request({ method: 'personal_sign', params: [message, address] });
-        body.message = message;
-        body.signature = signature;
-      }
+            if (REQUIRE_SIGNATURE) {
+                const provider = modal.getWalletProvider();
+                const message = `Sign in to ${location.host}\nAddress: ${address}\nNonce: ${urlParams.nonce || crypto.randomUUID()}`;
+                const signature = await provider.request({method: 'personal_sign', params: [message, address]});
+                body.message = message;
+                body.signature = signature;
+            }
 
-      const res = await fetch(SERVER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const text = (await res.text().catch(() => '')).trim();
-        const err = new Error(text || `Server responded ${res.status}`);
-        err.final = res.status === 409; // already linked / taken: retry won't help
-        throw err;
-      }
-      showConnected(address);
-    } catch (e) {
-      sent = false;
-      setStatus(e.message || 'Request failed', 'err');
-      retryBtn.hidden = !!e.final;
+            const res = await fetch(SERVER_URL, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                const text = (await res.text().catch(() => '')).trim();
+                const err = new Error(text || `Server responded ${res.status}`);
+                err.final = res.status === 409; // already linked / taken: retry won't help
+                throw err;
+            }
+            lastSent = address;
+            showConnected(address);
+        } catch (e) {
+            setStatus(e.message || 'Request failed', 'err');
+            retryBtn.hidden = !!e.final;
+        } finally {
+            inFlight = false;
+            // wallet changed while the request was running: send the new one too
+            const current = modal.getAddress();
+            if (current && current !== address) sendToServer(current);
+        }
     }
-  }
 
-  function showConnected(address) {
-    store.clear();
-    const short = address.slice(0, 6) + '…' + address.slice(-4);
-    document.getElementById('connect-wrap').hidden = true;
-    retryBtn.hidden = true;
-    document.getElementById('title').textContent = '✅ Wallet connected';
-    setStatus(short, 'ok');
-    document.getElementById('done-hint').hidden = false;
-  }
+    function resetUi() {
+        lastSent = null;
+        document.getElementById('card').classList.remove('done');
+        document.getElementById('title').textContent = 'Sign in with your wallet';
+        document.getElementById('subtitle').hidden = false;
+        document.getElementById('done-hint').hidden = true;
+        retryBtn.hidden = true;
+        setStatus('');
+    }
 
-  // --- Reset any old session on start (skipped when returning from the wallet app) ---
-  const FLAG = 'wc_connecting';
-  const store = {
-    get: () => { try { return sessionStorage.getItem(FLAG); } catch { return null; } },
-    set: () => { try { sessionStorage.setItem(FLAG, '1'); } catch {} },
-    clear: () => { try { sessionStorage.removeItem(FLAG); } catch {} },
-  };
+    function showConnected(address) {
+        store.clear();
+        const short = address.slice(0, 6) + '…' + address.slice(-4);
+        document.getElementById('subtitle').hidden = true;
+        document.getElementById('card').classList.add('done');
+        retryBtn.hidden = true;
+        document.getElementById('title').textContent = 'Wallet connected';
+        setStatus(short, 'ok');
+        document.getElementById('done-hint').hidden = false;
+    }
 
-  // Mark "connection in progress" once the user opens the modal, so a page reload
-  // after the wallet redirect doesn't kill the fresh session.
-  modal.subscribeState((s) => { if (s.open) store.set(); });
+    // --- Reset any old session on start (skipped when returning from the wallet app) ---
+    const FLAG = 'wc_connecting';
+    const store = {
+        get: () => {
+            try {
+                return sessionStorage.getItem(FLAG);
+            } catch {
+                return null;
+            }
+        },
+        set: () => {
+            try {
+                sessionStorage.setItem(FLAG, '1');
+            } catch {
+            }
+        },
+        clear: () => {
+            try {
+                sessionStorage.removeItem(FLAG);
+            } catch {
+            }
+        },
+    };
 
-  const ready = (async () => {
-    if (store.get()) return;
-    try { await modal.disconnect(); } catch { /* nothing to disconnect */ }
-  })();
+    // Mark "connection in progress" once the user opens the modal, so a page reload
+    // after the wallet redirect doesn't kill the fresh session.
+    modal.subscribeState((s) => {
+        if (s.open) store.set();
+    });
 
-  modal.subscribeAccount(async () => {
-    await ready;
-    const addr = modal.getAddress(); // re-read after reset, ignores stale restored sessions
-    if (addr) sendToServer(addr);
-  });
+    const ready = (async () => {
+        if (store.get()) return;
+        try {
+            await modal.disconnect();
+        } catch { /* nothing to disconnect */
+        }
+    })();
 
-  // Mobile browsers may suspend the page while the wallet app is open;
-  // re-check the connection when the user comes back.
-  document.addEventListener('visibilitychange', async () => {
-    if (document.visibilityState !== 'visible') return;
-    await ready;
-    const addr = modal.getAddress();
-    if (addr && !sent) sendToServer(addr);
-  });
+    modal.subscribeAccount(async () => {
+        await ready;
+        const addr = modal.getAddress(); // re-read after reset, ignores stale restored sessions
+        if (addr) sendToServer(addr); // no-op if this address was already sent
+        else if (!inFlight) resetUi(); // wallet disconnected
+    });
 
-  retryBtn.onclick = () => {
-    retryBtn.hidden = true;
-    const addr = modal.getAddress();
-    if (addr) sendToServer(addr); else modal.open();
-  };
+    // Mobile browsers may suspend the page while the wallet app is open;
+    // re-check the connection when the user comes back.
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState !== 'visible') return;
+        await ready;
+        const addr = modal.getAddress();
+        if (addr) sendToServer(addr);
+    });
+
+    retryBtn.onclick = () => {
+        retryBtn.hidden = true;
+        const addr = modal.getAddress();
+        if (addr) sendToServer(addr); else modal.open();
+    };
 </script>
 </body>
 </html>
