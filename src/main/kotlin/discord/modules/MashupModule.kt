@@ -177,10 +177,6 @@ class MashupModule(private val kord: Kord) : KoinComponent {
     }
 
     companion object {
-        val bannedUsers = listOf(
-            1444226071519166614,
-            859029138102288424,
-            1167694222120468553
-        )
+        val bannedUsers = listOf<Long>()
     }
 }
