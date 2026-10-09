@@ -94,10 +94,17 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                 ByteReadChannel(bytes)
             }
 
+            val embedTitle = "${interaction.user.globalName}'s mashup"
+
             val interactionResponse = response.respond {
                 addFile(filename, channelProvider)
                 embed {
-                    title = "${interaction.user.globalName}'s mashup"
+                    title = embedTitle
+
+                    if (bannedUsers.contains(interaction.user.id.value.toLong())) {
+                        description = "```ansi\n\u001b[31mBanned user!\u001b[0m\n```"
+                    }
+
                     color = Color(Random.nextInt(0xFFFFFF))
                     image = "attachment://$filename"
                     footer { text = "© 2026 mash-it" }
@@ -167,5 +174,13 @@ class MashupModule(private val kord: Kord) : KoinComponent {
             println(e)
             response.respond { content = "Something went wrong" }
         }
+    }
+
+    companion object {
+        val bannedUsers = listOf(
+            1444226071519166614,
+            859029138102288424,
+            1167694222120468553
+        )
     }
 }
