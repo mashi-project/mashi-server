@@ -67,7 +67,9 @@ class WalletModule(private val kord: Kord) : KoinComponent {
     private suspend fun handleResolveWallet(event: ChatInputCommandInteractionCreateEvent) = coroutineScope {
         try {
             val interaction = event.interaction
-            val userId = interaction.user.id.value.toLong()
+            val userId = interaction.command.options["discord_id"]?.value?.toString()?.toLong() ?:
+                interaction.user.id.value.toLong()
+
             val response = interaction.deferEphemeralResponse()
 
             val wallet = userDao.getWallet(userId = userId)
