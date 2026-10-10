@@ -1,9 +1,6 @@
 ﻿package com.mashiverse.images.playwright.combiners
 
-import com.mashiverse.configs.DURATION_LIMIT_SEC
-import com.mashiverse.configs.GIF_HEIGHT
-import com.mashiverse.configs.GIF_WIDTH
-import com.mashiverse.configs.PLAYBACK_FPS
+import com.mashiverse.configs.*
 import com.mashiverse.data.db.daos.HistoryDao
 import com.mashiverse.images.playwright.PlaywrightPool
 import com.mashiverse.utils.helpers.executeCmd
@@ -30,9 +27,17 @@ class AnimCombiner : KoinComponent {
     private val historyDao by inject<HistoryDao>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    suspend fun generateAnim(tempDir: Path, wallet: String? = null): Path {
-        val width = GIF_WIDTH
-        val height = GIF_HEIGHT
+    suspend fun generateAnim(tempDir: Path, wallet: String? = null, isSmall: Boolean = false): Path {
+        val width = if (isSmall) {
+            SMALL_GIF_WIDTH
+        } else {
+            GIF_WIDTH
+        }
+        val height = if (isSmall) {
+            SMALL_GIF_HEIGHT
+        } else {
+            GIF_HEIGHT
+        }
 
         val imageUrls = readImageFiles(tempDir)
         val htmlContent = prepareHtml(
@@ -51,11 +56,17 @@ class AnimCombiner : KoinComponent {
                     .setDeviceScaleFactor(1.0)
             )
 
+            val args = if (isSmall) {
+                getSmallGifArgs()
+            } else {
+                getGifArgs()
+            }
+
             val correctedHtml = warmupCtx.use { ctx ->
                 val warmupPage = ctx.newPage()
                 warmupPage.setContent(htmlContent)
                 warmupPage.waitForLoadState(LoadState.LOAD)
-                preparePage(warmupPage, getGifArgs())
+                preparePage(warmupPage, args)
                 warmupPage.content()
             }
 
@@ -103,7 +114,8 @@ class AnimCombiner : KoinComponent {
             makeGifFromVideo(
                 videoPath = videoFile.toPath(),
                 tempDir = tempDir,
-                startOffsetSec = startOffsetSec
+                startOffsetSec = startOffsetSec,
+                isSmall = isSmall
             )
         }
 
@@ -129,10 +141,19 @@ class AnimCombiner : KoinComponent {
         videoPath: Path,
         tempDir: Path,
         startOffsetSec: Double,
+        isSmall: Boolean = false
     ): Path {
         val gifPath = tempDir.resolve("result.gif")
-        val width = GIF_WIDTH
-        val height = GIF_HEIGHT
+        val width = if (isSmall) {
+            SMALL_GIF_WIDTH
+        } else {
+            GIF_WIDTH
+        }
+        val height = if (isSmall) {
+            SMALL_GIF_HEIGHT
+        } else {
+            GIF_HEIGHT
+        }
 
         // Format seek accurately
         val seekArg = String.format(java.util.Locale.US, "%.3f", startOffsetSec)

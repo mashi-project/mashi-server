@@ -22,6 +22,7 @@ class ImageService : KoinComponent {
     suspend fun requestCompositeData(
         wallet: String? = null,
         mashup: Mashup? = null,
+        isSmall: Boolean = false,
         downloadType: DownloadType,
     ): Pair<ByteArray, Long>? {
         return withContext(Dispatchers.IO) {
@@ -36,7 +37,8 @@ class ImageService : KoinComponent {
                     imageRepo.getImageData(
                         mashup = input,
                         downloadType = downloadType,
-                        wallet = wallet
+                        wallet = wallet,
+                        isSmall  = isSmall,
                     )
                 }
             } catch (e: Exception) {
@@ -44,16 +46,5 @@ class ImageService : KoinComponent {
                 null
             }
         }
-    }
-
-    /**
-     * Backward-compatible helper returning raw ByteArray.
-     */
-    suspend fun requestComposite(
-        wallet: String? = null,
-        mashup: Mashup? = null,
-        downloadType: DownloadType
-    ): ByteArray? {
-        return requestCompositeData(wallet, mashup, downloadType)?.first
     }
 }

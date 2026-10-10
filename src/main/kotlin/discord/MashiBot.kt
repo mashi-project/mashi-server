@@ -14,10 +14,12 @@ import dev.kord.common.Color
 import dev.kord.common.entity.Snowflake
 import dev.kord.core.Kord
 import dev.kord.core.behavior.channel.createMessage
+import dev.kord.core.entity.Message
 import dev.kord.core.entity.ReactionEmoji
 import dev.kord.core.entity.channel.TextChannel
 import dev.kord.rest.builder.message.allowedMentions
 import dev.kord.rest.builder.message.embed
+import dev.kord.rest.request.KtorRequestException
 import images.services.ImageService
 import io.ktor.client.request.forms.*
 import io.ktor.utils.io.*
@@ -165,34 +167,43 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
             val userId = Snowflake(userIdLong)
             val user = kord.getUser(userId) ?: return
 
-            // 1. Determine extension and filename
             val ext = if (downloadType == DownloadType.PNG) ".png" else ".gif"
             val filename = "composite$ext"
 
-            // 2. Safely unwrap or fetch alternative data if too large
-            val resolvedData = data ?: imageService.requestCompositeData(wallet, downloadType = downloadType)
-            ?: throw IllegalStateException("Failed to generate composite image data")
+            suspend fun post(payload: Pair<ByteArray, Long>): Message {
+                val (bytes, size) = payload
+                val channelProvider = ChannelProvider(size) { ByteReadChannel(bytes) }
 
-            val (bytes, size) = resolvedData
-
-            // Supplying ByteReadChannel(bytes) inside the lambda allows Kord/Ktor
-            // to re-read the channel if needed without premature stream closing
-            val channelProvider = ChannelProvider(size) {
-                ByteReadChannel(bytes)
-            }
-
-            // 3. Send message to the target text channel
-            val message = channel.createMessage {
-                addFile(filename, channelProvider)
-                embed {
-                    title = "${user.globalName ?: user.username}'s mashup"
-                    color = Color(Random.nextInt(0xFFFFFF))
-                    image = "attachment://$filename"
-                    footer { text = "© 2026 mash-it" }
+                return channel.createMessage {
+                    addFile(filename, channelProvider)
+                    embed {
+                        title = "${user.globalName ?: user.username}'s mashup"
+                        color = Color(Random.nextInt(0xFFFFFF))
+                        image = "attachment://$filename"
+                        footer { text = "© 2026 mash-it" }
+                    }
                 }
             }
 
-            // 4. Fire reaction in the background
+            val initialData = data
+                ?: imageService.requestCompositeData(wallet, downloadType = downloadType)
+                ?: throw IllegalStateException("Failed to generate composite image data")
+
+            val message = try {
+                post(initialData)
+            } catch (e: KtorRequestException) {
+                if (e.status.code == 413) {
+                    val smallData = imageService.requestCompositeData(
+                        wallet,
+                        downloadType = downloadType,
+                        isSmall = true
+                    ) ?: throw IllegalStateException("Failed to generate small composite image data")
+                    post(smallData)
+                } else {
+                    throw e
+                }
+            }
+
             CoroutineScope(Dispatchers.IO).launch {
                 runCatching {
                     message.addReaction(ReactionEmoji.Unicode("🔥"))

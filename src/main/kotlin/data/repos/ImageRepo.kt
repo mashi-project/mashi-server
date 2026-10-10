@@ -93,6 +93,7 @@ class ImageRepo : KoinComponent {
         mashup: Mashup,
         downloadType: DownloadType = DownloadType.PNG,
         wallet: String? = null,
+        isSmall: Boolean = false,
     ): Pair<ByteArray, Long>? = withContext(Dispatchers.IO) {
         val assets = mashup.traits
         val colors = mashup.colors
@@ -137,7 +138,7 @@ class ImageRepo : KoinComponent {
                 writeFile(filePath, fileContent)
             }
 
-            val gifPath: Path = animCombiner.generateAnim(uniqueDir, wallet = wallet)
+            val gifPath: Path = animCombiner.generateAnim(uniqueDir, wallet = wallet, isSmall = isSmall)
 
             // Read into byte array BEFORE rmDir destroys the file
             val bytes = readFile(gifPath)

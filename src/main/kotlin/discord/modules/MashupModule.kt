@@ -12,10 +12,12 @@ import dev.kord.core.behavior.interaction.response.respond
 import dev.kord.core.entity.ReactionEmoji
 import dev.kord.core.entity.channel.TextChannel
 import dev.kord.core.entity.interaction.GuildChatInputCommandInteraction
+import dev.kord.core.entity.interaction.response.PublicMessageInteractionResponse
 import dev.kord.core.event.interaction.ChatInputCommandInteractionCreateEvent
 import dev.kord.core.on
 import dev.kord.rest.builder.interaction.string
 import dev.kord.rest.builder.message.embed
+import dev.kord.rest.request.KtorRequestException
 import images.services.ImageService
 import io.ktor.client.request.forms.*
 import io.ktor.utils.io.*
@@ -74,44 +76,49 @@ class MashupModule(private val kord: Kord) : KoinComponent {
             return@coroutineScope
         }
 
-        // 2. Wallet exists -> Now defer publicly
         val response = interaction.deferPublicResponse()
 
         try {
             val downloadType = DownloadType.valueOf(imageOpt)
             val ext = if (downloadType == DownloadType.PNG) ".png" else ".gif"
             val filename = "composite$ext"
-
-            // 2. Fetch the assembled data bytes safely
-            var data = imageService.requestCompositeData(wallet, downloadType = downloadType)
-                ?: throw IllegalStateException("Failed to generate composite image data")
-
-            val (bytes, size) = data
-
-            // Supplying ByteReadChannel(bytes) inside the lambda allows Kord/Ktor
-            // to re-read the channel if needed without premature stream closing
-            val channelProvider = ChannelProvider(size) {
-                ByteReadChannel(bytes)
-            }
-
             val embedTitle = "${interaction.user.globalName}'s mashup"
 
-            val interactionResponse = response.respond {
-                addFile(filename, channelProvider)
-                embed {
-                    title = embedTitle
+            suspend fun send(isSmall: Boolean): PublicMessageInteractionResponse {
+                val (bytes, size) = imageService.requestCompositeData(
+                    wallet,
+                    downloadType = downloadType,
+                    isSmall = isSmall
+                ) ?: throw IllegalStateException("Failed to generate composite image data")
 
-                    if (bannedUsers.contains(interaction.user.id.value.toLong())) {
-                        description = "```ansi\n\u001b[31mBanned user!\u001b[0m\n```"
+                val channelProvider = ChannelProvider(size) { ByteReadChannel(bytes) }
+
+                return response.respond {
+                    addFile(filename, channelProvider)
+                    embed {
+                        title = embedTitle
+
+                        if (bannedUsers.contains(userId)) {
+                            description = "```ansi\n\u001b[31mBanned user!\u001b[0m\n```"
+                        }
+
+                        color = Color(Random.nextInt(0xFFFFFF))
+                        image = "attachment://$filename"
+                        footer { text = "© 2026 mash-it" }
                     }
-
-                    color = Color(Random.nextInt(0xFFFFFF))
-                    image = "attachment://$filename"
-                    footer { text = "© 2026 mash-it" }
                 }
             }
 
-            // 3. Fire reaction in the background without suspending handler completion
+            val interactionResponse = try {
+                send(isSmall = false)
+            } catch (e: KtorRequestException) {
+                if (e.status.code == 413) {
+                    send(isSmall = true)
+                } else {
+                    throw e
+                }
+            }
+
             launch {
                 runCatching {
                     interactionResponse.message.addReaction(ReactionEmoji.Unicode("🔥"))

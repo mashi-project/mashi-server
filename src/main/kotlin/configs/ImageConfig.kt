@@ -11,6 +11,11 @@ const val GIF_TRAIT_HEIGHT = (600 * 1.5).toInt()
 const val PLAYBACK_FPS = 15
 const val DURATION_LIMIT_SEC = 5.0
 
+const val SMALL_GIF_WIDTH = 552
+const val SMALL_GIF_HEIGHT = 736
+const val SMALL_GIF_TRAIT_WIDTH = 380
+const val SMALL_GIF_TRAIT_HEIGHT = 600
+
 // PNG
 const val PNG_WIDTH = (552 * 1.5).toInt()
 const val PNG_HEIGHT = (736 * 1.5).toInt()
