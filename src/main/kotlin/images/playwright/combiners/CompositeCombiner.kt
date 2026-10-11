@@ -6,18 +6,44 @@ import com.mashiverse.data.db.daos.HistoryDao
 import com.mashiverse.images.playwright.PlaywrightPool
 import com.microsoft.playwright.Browser
 import com.microsoft.playwright.Page
-import com.microsoft.playwright.options.LoadState
+import com.microsoft.playwright.Route
 import com.microsoft.playwright.options.ScreenshotType
 import com.microsoft.playwright.options.ViewportSize
+import com.microsoft.playwright.options.WaitUntilState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import java.util.*
+import java.net.URI
 
 class CompositeCombiner : KoinComponent {
+
+    private companion object {
+        const val ORIGIN = "http://localhost"
+
+        // Decodes every image and returns how many are broken (0 = all good).
+        // Replaces the old waitForFunction polling + decode + (again) waitForFunction + decode.
+        const val DECODE_JS = """
+            async () => {
+                const imgs = Array.from(document.images);
+                await Promise.all(imgs.map(i => i.decode ? i.decode().catch(() => {}) : Promise.resolve()));
+                return imgs.filter(i => !(i.complete && i.naturalWidth > 0 && i.naturalHeight > 0)).length;
+            }
+        """
+
+        // Re-check after preparePage (it may touch the DOM/CSS) and let one frame paint.
+        // Playwright's screenshot also forces a frame, so a single rAF is enough.
+        const val FINALIZE_JS = """
+            async () => {
+                const imgs = Array.from(document.images);
+                await Promise.all(imgs.map(i => i.decode ? i.decode().catch(() => {}) : Promise.resolve()));
+                await new Promise(r => requestAnimationFrame(() => r()));
+                return imgs.filter(i => !(i.complete && i.naturalWidth > 0 && i.naturalHeight > 0)).length;
+            }
+        """
+    }
 
     private val historyDao by inject<HistoryDao>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -27,10 +53,10 @@ class CompositeCombiner : KoinComponent {
         wallet: String? = null
     ): ByteArray {
 
-        val imageUrls = traitsBytes.map { (mime, bytes) ->
-            val b64 = Base64.getEncoder().encodeToString(bytes)
-            "data:$mime;base64,$b64"
-        }
+        // Serve the raw bytes through request interception instead of base64 data: URLs.
+        // That avoids the +33% base64 inflation, the multi-MB HTML string, and the extra
+        // copies through the Playwright protocol.
+        val imageUrls = traitsBytes.indices.map { "$ORIGIN/img/$it" }
 
         val htmlContent = prepareHtml(
             urls = imageUrls,
@@ -43,9 +69,7 @@ class CompositeCombiner : KoinComponent {
 
             val context = browser.newContext(
                 Browser.NewContextOptions()
-                    .setViewportSize(
-                        ViewportSize(PNG_WIDTH, PNG_HEIGHT)
-                    )
+                    .setViewportSize(ViewportSize(PNG_WIDTH, PNG_HEIGHT))
                     .setDeviceScaleFactor(1.0)
             )
 
@@ -53,97 +77,42 @@ class CompositeCombiner : KoinComponent {
 
                 val page = ctx.newPage()
 
-                // ---------------------------------------------------------
-                // Load page
-                // ---------------------------------------------------------
+                page.route("$ORIGIN/**") { route ->
+                    val path = URI.create(route.request().url()).path
+                    val index = if (path.startsWith("/img/")) path.removePrefix("/img/").toIntOrNull() else null
 
-                page.setContent(htmlContent)
+                    when {
+                        path == "/index.html" -> route.fulfill(
+                            Route.FulfillOptions()
+                                .setContentType("text/html; charset=utf-8")
+                                .setBody(htmlContent)
+                        )
 
-                page.waitForLoadState(LoadState.LOAD)
+                        index != null && index in traitsBytes.indices -> route.fulfill(
+                            Route.FulfillOptions()
+                                .setContentType(traitsBytes[index].first)
+                                .setBodyBytes(traitsBytes[index].second)
+                        )
 
-                // ---------------------------------------------------------
-                // Wait for every image to actually load
-                // ---------------------------------------------------------
-
-                page.waitForFunction(
-                    """
-                    () => Array.from(document.images).every(
-                        img => img.complete &&
-                               img.naturalWidth > 0 &&
-                               img.naturalHeight > 0
-                    )
-                    """.trimIndent()
-                )
-
-                // ---------------------------------------------------------
-                // Decode every image
-                // ---------------------------------------------------------
-
-                page.evaluate(
-                    """
-                    async () => {
-                        const images = Array.from(document.images);
-
-                        await Promise.all(
-                            images.map(async (img) => {
-                                if (typeof img.decode === 'function') {
-                                    try {
-                                        await img.decode();
-                                    } catch (_) {
-                                        // Ignore decode errors.
-                                    }
-                                }
-                            })
-                        );
+                        else -> route.fulfill(Route.FulfillOptions().setStatus(404))
                     }
-                    """.trimIndent()
+                }
+
+                // navigate() already waits for the load event (and thus for all <img> in the HTML),
+                // so the separate waitForLoadState + first waitForFunction were redundant.
+                page.navigate(
+                    "$ORIGIN/index.html",
+                    Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD)
                 )
 
-                // ---------------------------------------------------------
-                // Apply your page styling AFTER images are available
-                // ---------------------------------------------------------
+                // Images must be decoded BEFORE preparePage (it styles based on them).
+                val brokenBefore = (page.evaluate(DECODE_JS) as Number).toInt()
+                check(brokenBefore == 0) { "$brokenBefore image(s) failed to load" }
 
                 preparePage(page, getPngArgs())
 
-                // ---------------------------------------------------------
-                // Wait again because preparePage may alter the DOM/CSS
-                // ---------------------------------------------------------
-
-                page.waitForFunction(
-                    """
-                    () => Array.from(document.images).every(
-                        img => img.complete &&
-                               img.naturalWidth > 0 &&
-                               img.naturalHeight > 0
-                    )
-                    """.trimIndent()
-                )
-
-                page.evaluate(
-                    """
-                    async () => {
-                        const images = Array.from(document.images);
-
-                        await Promise.all(
-                            images.map(async (img) => {
-                                if (typeof img.decode === 'function') {
-                                    try {
-                                        await img.decode();
-                                    } catch (_) {}
-                                }
-                            })
-                        );
-
-                        // Allow browser to paint the final composition.
-                        await new Promise(requestAnimationFrame);
-                        await new Promise(requestAnimationFrame);
-                    }
-                    """.trimIndent()
-                )
-
-                // ---------------------------------------------------------
-                // Screenshot
-                // ---------------------------------------------------------
+                val brokenAfter = (page.evaluate(FINALIZE_JS) as Number).toInt()
+                check(brokenAfter == 0) { "$brokenAfter image(s) failed to load after preparePage" }
 
                 return@execute page.screenshot(
                     Page.ScreenshotOptions()

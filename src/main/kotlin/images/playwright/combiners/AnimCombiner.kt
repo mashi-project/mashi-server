@@ -37,7 +37,7 @@ class AnimCombiner : KoinComponent {
         // Number of parallel capture workers. Each one uses its own PlaywrightPool slot
         // (Playwright Java is not thread-safe, so every worker needs its own browser),
         // so the pool must allow at least this many concurrent execute() calls.
-        const val PARALLEL_WORKERS = 3
+        const val PARALLEL_WORKERS = 4
 
         // Installed once per capture page. Replaces animated WebP <img> elements with canvases
         // that can be drawn at an arbitrary time, and exposes window.__seek(tMs).
@@ -185,7 +185,7 @@ class AnimCombiner : KoinComponent {
         withContext(Dispatchers.IO) { Files.createDirectories(framesDir) }
 
         val fps = PLAYBACK_FPS.toDouble()
-        val totalFrames = (DURATION_LIMIT_SEC.toDouble() * fps).roundToInt()
+        val totalFrames = (DURATION_LIMIT_SEC * fps).roundToInt()
 
         val resultGifPath = try {
             captureFrames(
