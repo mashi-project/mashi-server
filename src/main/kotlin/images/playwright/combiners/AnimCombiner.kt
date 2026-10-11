@@ -31,7 +31,7 @@ class AnimCombiner : KoinComponent {
     companion object {
         // Background color used in the HTML (html, body { background: #111214; })
         // and keyed out to transparent in ffmpeg. Both must match.
-        const val KEY_HEX = "111214"
+        const val KEY_HEX = "FF00FF"
         const val KEY_SIMILARITY = "0.02"
 
         // Number of parallel capture workers. Each one uses its own PlaywrightPool slot
