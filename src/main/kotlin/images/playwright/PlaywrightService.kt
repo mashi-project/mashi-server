@@ -43,7 +43,7 @@ class PlaywrightWorkerInstance(val id: Int) : Closeable {
 
 object PlaywrightPool : Closeable {
     // Number of browsers to keep warm simultaneously. Adjust according to host CPU/RAM.
-    private const val POOL_SIZE = 5
+    private const val POOL_SIZE = 9
 
     private val pool = Channel<PlaywrightWorkerInstance>(POOL_SIZE)
     private val workers = mutableListOf<PlaywrightWorkerInstance>()
