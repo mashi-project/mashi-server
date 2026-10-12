@@ -24,7 +24,6 @@ class CompositeCombiner : KoinComponent {
         const val ORIGIN = "http://localhost"
 
         // Decodes every image and returns how many are broken (0 = all good).
-        // Replaces the old waitForFunction polling + decode + (again) waitForFunction + decode.
         const val DECODE_JS = """
             async () => {
                 const imgs = Array.from(document.images);
@@ -98,8 +97,7 @@ class CompositeCombiner : KoinComponent {
                     }
                 }
 
-                // navigate() already waits for the load event (and thus for all <img> in the HTML),
-                // so the separate waitForLoadState + first waitForFunction were redundant.
+                // navigate() already waits for the load event (and thus for all <img> in the HTML).
                 page.navigate(
                     "$ORIGIN/index.html",
                     Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD)

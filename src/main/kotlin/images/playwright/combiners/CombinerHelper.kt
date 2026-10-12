@@ -24,6 +24,11 @@ fun getPngArgs() = mapOf(
     "TRAIT_HEIGHT" to PNG_TRAIT_HEIGHT
 )
 
+private fun escapeAttr(s: String) = s
+    .replace("&", "&amp;")
+    .replace("\"", "&quot;")
+    .replace("<", "&lt;")
+
 fun prepareHtml(
     urls: List<String>,
     width: Int,
@@ -33,7 +38,7 @@ fun prepareHtml(
     val imageTags = urls.mapIndexed { i, url ->
         """
             <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; z-index:$i;">
-                <img src="$url" style="width:100%; height:100%; object-fit:contain;" />
+                <img src="${escapeAttr(url)}" style="width:100%; height:100%; object-fit:contain;" />
             </div>
             """.trimIndent()
     }.joinToString("\n")
@@ -42,6 +47,7 @@ fun prepareHtml(
         <!DOCTYPE html>
         <html>
             <head>
+                <meta charset="utf-8">
                 <style>
                     * {
                         box-sizing: border-box;
@@ -60,6 +66,11 @@ fun prepareHtml(
         """.trimIndent()
 }
 
+/**
+ * Adds padding around layers whose aspect ratio is not the standard 0.75 (trait-sized layers).
+ * Must run while the layers are still <img> elements (reads naturalWidth/naturalHeight).
+ * Broken images resolve instead of hanging forever (onerror).
+ */
 fun preparePage(
     page: Page,
     evaluateArgs: Map<String, Int>
@@ -69,11 +80,14 @@ fun preparePage(
         (args) => {
             const imgs = Array.from(document.images);
             return Promise.all(
-                imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => img.onload = res))
+                imgs.map(img => img.complete
+                    ? Promise.resolve()
+                    : new Promise(res => { img.onload = res; img.onerror = res; }))
             ).then(() => {
                 const padX = (args.IMAGE_WIDTH - args.TRAIT_WIDTH) / 2;
                 const padY = (args.IMAGE_HEIGHT - args.TRAIT_HEIGHT) / 2;
                 document.querySelectorAll('img').forEach(img => {
+                    if (!img.naturalHeight) return;
                     const ratio = img.naturalWidth / img.naturalHeight;
                     if (Math.abs(ratio - 0.75) > 0.01) {
                         img.parentElement.style.padding = `${'$'}{padY}px ${'$'}{padX}px`;

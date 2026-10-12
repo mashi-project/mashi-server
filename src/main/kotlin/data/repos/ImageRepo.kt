@@ -7,9 +7,6 @@ import com.mashiverse.data.remote.apis.IpfsApi
 import com.mashiverse.images.helpers.*
 import com.mashiverse.images.playwright.combiners.AnimCombiner
 import com.mashiverse.images.playwright.combiners.CompositeCombiner
-import com.mashiverse.utils.helpers.readFile
-import com.mashiverse.utils.helpers.rmDir
-import com.mashiverse.utils.helpers.writeFile
 import data.models.DownloadType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -17,10 +14,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
-import java.util.*
 
 class ImageRepo : KoinComponent {
     private val animCombiner by inject<AnimCombiner>()
@@ -103,49 +96,27 @@ class ImageRepo : KoinComponent {
         val assetJobs = assets.map { asset -> async { getAsset(asset, colors) } }
         val images = assetJobs.awaitAll().filter { it.imageType != ImageType.UNKNOWN }
 
-        // Safely map layer order, omitting missing/failed layers without crashing
-        val traits = LAYER_ORDER.mapNotNull { name ->
-            images.firstOrNull { it.name == name }?.data
-        }.toMutableList()
-
-        if (traits.isEmpty()) return@withContext null
-
-        val imagesWithMime = traits.map { bytes ->
-            val image = images.first { it.data.contentEquals(bytes) }
-            image.copy(mimeType = getMime(image.imageType))
+        // Layers in draw order. Missing/failed layers are skipped. The (mime, bytes) pair is built
+        // straight from the layer itself; the old lookup by comparing byte arrays was O(n²) and could
+        // pick the wrong layer when two layers had identical bytes.
+        val traitsWithMime: List<Pair<String, ByteArray>> = LAYER_ORDER.mapNotNull { name ->
+            val image = images.firstOrNull { it.name == name } ?: return@mapNotNull null
+            val mime = getMime(image.imageType) ?: return@mapNotNull null
+            val data = image.data ?: return@mapNotNull null
+            mime to data
         }
 
-        val traitsWithMime =
-            imagesWithMime.filter { it.mimeType != null && it.data != null }.map { it.mimeType!! to it.data!! }.toList()
+        if (traitsWithMime.isEmpty()) return@withContext null
 
-        // 1. PNG: In-memory pipeline, zero disk writes
+        // 1. PNG: in-memory pipeline, zero disk writes
         if (downloadType == DownloadType.PNG) {
             val bytes = compositeCombiner.generateComposite(traitsWithMime, wallet = wallet)
             return@withContext Pair(bytes, bytes.size.toLong())
         }
 
-        // 2. GIF: Render in system temp directory (/tmp) instead of /dev/shm
-        val sysTmpDir = Paths.get(System.getProperty("java.io.tmpdir")).resolve("mashi-temp")
-        Files.createDirectories(sysTmpDir)
-
-        val uniqueDir = Files.createTempDirectory(sysTmpDir, "anim-")
-
-        try {
-            traitsWithMime.forEachIndexed { index, (mime, bytes) ->
-                val b64 = Base64.getEncoder().encodeToString(bytes)
-                val filePath = uniqueDir.resolve(index.toString())
-                val fileContent = "data:$mime;base64,$b64".toByteArray(Charsets.UTF_8)
-                writeFile(filePath, fileContent)
-            }
-
-            val gifPath: Path = animCombiner.generateAnim(uniqueDir, wallet = wallet, isSmall = isSmall)
-
-            // Read into byte array BEFORE rmDir destroys the file
-            val bytes = readFile(gifPath)
-            Pair(bytes, bytes.size.toLong())
-        } finally {
-            rmDir(uniqueDir)
-        }
+        // 2. GIF: the combiner takes the raw layers, manages its own temp files and returns the bytes.
+        val bytes = animCombiner.generateAnim(traitsWithMime, wallet = wallet, isSmall = isSmall)
+        Pair(bytes, bytes.size.toLong())
     }
 
     /**
