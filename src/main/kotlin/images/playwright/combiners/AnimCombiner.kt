@@ -129,14 +129,15 @@ class AnimCombiner : KoinComponent {
     /**
      * @param traits layers bottom to top as (mime type, raw bytes). They are served to the browser
      *               directly from memory, so nothing is base64-encoded or written to disk for them.
+     * @param isWatchFace if true, scales the output to 192x192 (1:1 aspect ratio) with a center-crop.
      * @return the finished GIF. The working directory is created and removed here, so the caller never
-     *         has to manage temp files (and the history save below works on the bytes, not on a file
-     *         that could already be deleted).
+     *         has to manage temp files.
      */
     suspend fun generateAnim(
         traits: List<Pair<String, ByteArray>>,
         wallet: String? = null,
-        isSmall: Boolean = false
+        isSmall: Boolean = false,
+        isWatchFace: Boolean = false
     ): ByteArray {
         require(traits.isNotEmpty()) { "No layers to render" }
 
@@ -174,7 +175,13 @@ class AnimCombiner : KoinComponent {
             )
 
             val gifBytes = withContext(Dispatchers.IO) {
-                val gifPath = makeGifFromRuns(runs = runs, framesDir = framesDir, workDir = workDir, fps = fps)
+                val gifPath = makeGifFromRuns(
+                    runs = runs,
+                    framesDir = framesDir,
+                    workDir = workDir,
+                    fps = fps,
+                    isWatchFace = isWatchFace
+                )
                 Files.readAllBytes(gifPath)
             }
 
@@ -230,7 +237,6 @@ class AnimCombiner : KoinComponent {
                             val page = ctx.newPage()
 
                             // Serve the HTML and the layer bytes from a secure origin
-                            // (WebCodecs needs a secure context; http://localhost counts as one).
                             page.route("$ORIGIN/**") { route ->
                                 val path = URI.create(route.request().url()).path
                                 val index = if (path.startsWith("/img/")) path.removePrefix("/img/").toIntOrNull() else null
@@ -251,7 +257,6 @@ class AnimCombiner : KoinComponent {
                                 }
                             }
 
-                            // navigate() waits for the load event, i.e. for all <img> in the HTML.
                             page.navigate(
                                 "$ORIGIN/anim.html",
                                 Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD)
@@ -261,14 +266,12 @@ class AnimCombiner : KoinComponent {
                                 "ImageDecoder is not available in this Chromium build"
                             }
 
-                            // Must run while the layers are still <img> elements (it reads naturalWidth/Height).
                             preparePage(page, args)
                             page.evaluate(INIT_JS)
 
                             @Suppress("UNCHECKED_CAST")
                             val sigs = page.evaluate("ts => ts.map(t => window.__sig(t))", times) as List<String>
 
-                            // Same input -> same result in every worker, so no coordination is needed.
                             val unique = uniqueFrameIndices(sigs)
 
                             val cdp = ctx.newCDPSession(page)
@@ -301,8 +304,6 @@ class AnimCombiner : KoinComponent {
 
     /**
      * Collapses consecutive frames with the same signature into one run.
-     * A look that comes back later (loop wrap, ping-pong) is a separate run that points at the
-     * same PNG, so it is rendered once but listed again in the concat file.
      */
     private fun buildRuns(sigs: List<String>): List<Run> {
         val firstOf = HashMap<String, Int>()
@@ -322,11 +323,9 @@ class AnimCombiner : KoinComponent {
     private fun frameName(i: Int) = "%05d.png".format(i)
 
     /**
-     * Encodes one picture per run, using the concat demuxer so each picture keeps its real duration
-     * (run length / fps). ffmpeg now processes only the distinct pictures instead of every output frame,
-     * and the GIF contains one frame per run with the right delay, so the file is smaller as well.
+     * Encodes one picture per run, using the concat demuxer so each picture keeps its real duration.
      */
-    private fun makeGifFromRuns(runs: List<Run>, framesDir: Path, workDir: Path, fps: Double): Path {
+    private fun makeGifFromRuns(runs: List<Run>, framesDir: Path, workDir: Path, fps: Double, isWatchFace: Boolean): Path {
         val gifPath = workDir.resolve("result.gif")
         val listPath = workDir.resolve("frames.txt")
 
@@ -337,15 +336,20 @@ class AnimCombiner : KoinComponent {
                 append("file ").append(quoted(framesDir.resolve(frameName(run.frameIndex)))).append('\n')
                 append("duration ").append(String.format(Locale.ROOT, "%.6f", run.count / fps)).append('\n')
             }
-            // The concat demuxer ignores the duration of the last entry unless the file is repeated.
             append("file ").append(quoted(framesDir.resolve(frameName(runs.last().frameIndex)))).append('\n')
         }
         Files.writeString(listPath, list)
 
         val keyColor = "0x$KEY_HEX"
 
-        // format=rgba BEFORE colorkey so keyed pixels get alpha = 0.
-        val baseFilter = "format=rgba,colorkey=$keyColor:$KEY_SIMILARITY:0.0"
+        // Scale & 1:1 center-crop for watch faces if requested, then apply colorkey and transparency.
+        val resizeFilter = if (isWatchFace) {
+            "scale=384:512:force_original_aspect_ratio=increase,crop=384:384:(iw-ow)/2:(ih-oh)/2,"
+        } else {
+            ""
+        }
+
+        val baseFilter = "${resizeFilter}format=rgba,colorkey=$keyColor:$KEY_SIMILARITY:0.0"
 
         val filterGraph = "[0:v]$baseFilter,split[stream][paletteSource];" +
                 "[paletteSource]palettegen=max_colors=256:stats_mode=diff:reserve_transparent=1[palette];" +

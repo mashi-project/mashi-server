@@ -43,6 +43,7 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                 string("image", "Image type") {
                     choice("PNG", "PNG")
                     choice("GIF", "GIF")
+                    choice("GIF_WATCH_FACE", "GIF_WATCH_FACE")
                 }
             }
             kord.createGlobalChatInputCommand("delete_mashup", "Deletes mashup") {
@@ -79,7 +80,11 @@ class MashupModule(private val kord: Kord) : KoinComponent {
         val response = interaction.deferPublicResponse()
 
         try {
-            val downloadType = DownloadType.valueOf(imageOpt)
+            val downloadType = try {
+                DownloadType.valueOf(imageOpt)
+            } catch (e: Exception) {
+                DownloadType.GIF
+            }
             val ext = if (downloadType == DownloadType.PNG) ".png" else ".gif"
             val filename = "composite$ext"
             val embedTitle = "${interaction.user.globalName}'s mashup"
@@ -88,7 +93,8 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                 val (bytes, size) = imageService.requestCompositeData(
                     wallet,
                     downloadType = downloadType,
-                    isSmall = isSmall
+                    isSmall = isSmall,
+                    isWatchFace = imageOpt == "GIF_WATCH_FACE",
                 ) ?: throw IllegalStateException("Failed to generate composite image data")
 
                 val channelProvider = ChannelProvider(size) { ByteReadChannel(bytes) }

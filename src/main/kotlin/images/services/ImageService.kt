@@ -24,6 +24,7 @@ class ImageService : KoinComponent {
         mashup: Mashup? = null,
         isSmall: Boolean = false,
         downloadType: DownloadType,
+        isWatchFace: Boolean,
     ): Pair<ByteArray, Long>? {
         return withContext(Dispatchers.IO) {
             try {
@@ -39,6 +40,7 @@ class ImageService : KoinComponent {
                         downloadType = downloadType,
                         wallet = wallet,
                         isSmall  = isSmall,
+                        isWatchFace = isWatchFace,
                     )
                 }
             } catch (e: Exception) {

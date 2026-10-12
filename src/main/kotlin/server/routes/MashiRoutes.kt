@@ -1,10 +1,6 @@
 package com.mashiverse.server.routes
 
-import com.google.firebase.messaging.ApnsConfig
-import com.google.firebase.messaging.Aps
-import com.google.firebase.messaging.FirebaseMessaging
-import com.google.firebase.messaging.Message
-import com.google.firebase.messaging.Notification
+import com.google.firebase.messaging.*
 import com.mashiverse.data.db.daos.ImageDao
 import com.mashiverse.data.db.daos.UserDao
 import com.mashiverse.data.models.ImageType
@@ -17,7 +13,7 @@ import data.models.DownloadType
 import images.services.ImageService
 import io.ktor.http.*
 import io.ktor.server.application.*
-import io.ktor.server.request.receive
+import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.CoroutineScope
@@ -186,7 +182,11 @@ fun Application.mashiRoutes() {
 
                 generateScope.launch {
                     try {
-                        val data = imageService.requestCompositeData(wallet = walletId, downloadType = type)
+                        val data = imageService.requestCompositeData(
+                            wallet = walletId,
+                            downloadType = type,
+                            isWatchFace = false
+                        )
 
                         if (discord) {
                             MashiBot.getInstance().sendMashup(data = data, downloadType = type, wallet = walletId)

@@ -186,7 +186,7 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
             }
 
             val initialData = data
-                ?: imageService.requestCompositeData(wallet, downloadType = downloadType)
+                ?: imageService.requestCompositeData(wallet, downloadType = downloadType, isWatchFace = false)
                 ?: throw IllegalStateException("Failed to generate composite image data")
 
             val message = try {
@@ -195,8 +195,9 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
                 if (e.status.code == 413) {
                     val smallData = imageService.requestCompositeData(
                         wallet,
+                        isSmall = true,
                         downloadType = downloadType,
-                        isSmall = true
+                        isWatchFace = false
                     ) ?: throw IllegalStateException("Failed to generate small composite image data")
                     post(smallData)
                 } else {
