@@ -1,6 +1,7 @@
 ﻿package images.services
 
 import com.mashiverse.configs.imageSemaphore
+import com.mashiverse.data.models.GifRes
 import com.mashiverse.data.models.Mashup
 import com.mashiverse.data.remote.apis.MashitApi
 import com.mashiverse.data.repos.ImageRepo
@@ -22,7 +23,7 @@ class ImageService : KoinComponent {
     suspend fun requestCompositeData(
         wallet: String? = null,
         mashup: Mashup? = null,
-        isSmall: Boolean = false,
+        gifRes: GifRes = GifRes.NORMAL,
         downloadType: DownloadType,
     ): Pair<ByteArray, Long>? {
         return withContext(Dispatchers.IO) {
@@ -38,7 +39,7 @@ class ImageService : KoinComponent {
                         mashup = input,
                         downloadType = downloadType,
                         wallet = wallet,
-                        isSmall  = isSmall,
+                        gifRes = gifRes,
                     )
                 }
             } catch (e: Exception) {

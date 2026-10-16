@@ -2,5 +2,5 @@
 
 enum class DownloadType {
     PNG,
-    GIF
+    GIF,
 }

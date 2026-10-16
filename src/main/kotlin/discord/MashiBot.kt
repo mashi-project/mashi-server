@@ -2,6 +2,7 @@
 
 import com.mashiverse.configs.*
 import com.mashiverse.data.db.daos.UserDao
+import com.mashiverse.data.models.GifRes
 import com.mashiverse.data.remote.apis.IpfsApi
 import com.mashiverse.data.remote.dto.NotifyDto
 import com.mashiverse.discord.modules.MashupModule
@@ -189,20 +190,37 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
                 ?: imageService.requestCompositeData(wallet, downloadType = downloadType)
                 ?: throw IllegalStateException("Failed to generate composite image data")
 
-            val message = try {
-                post(initialData)
-            } catch (e: KtorRequestException) {
-                if (e.status.code == 413) {
-                    val smallData = imageService.requestCompositeData(
+            // Discord answers 413 when the file is too big: retry with progressively smaller versions.
+            // Any other error is rethrown immediately, and a 413 on the last (smallest) one propagates.
+            suspend fun postWithFallback(): Message {
+                var lastError: KtorRequestException? = null
+
+                try {
+                    return post(initialData)
+                } catch (e: KtorRequestException) {
+                    if (e.status.code != 413) throw e
+                    lastError = e
+                }
+
+                for (res in listOf(GifRes.NORMAL, GifRes.SMALL, GifRes.XS)) {
+                    val smaller = imageService.requestCompositeData(
                         wallet,
                         downloadType = downloadType,
-                        isSmall = true
-                    ) ?: throw IllegalStateException("Failed to generate small composite image data")
-                    post(smallData)
-                } else {
-                    throw e
+                        gifRes = res
+                    ) ?: throw IllegalStateException("Failed to generate $res composite image data")
+
+                    try {
+                        return post(smaller)
+                    } catch (e: KtorRequestException) {
+                        if (e.status.code != 413) throw e
+                        lastError = e
+                    }
                 }
+
+                throw checkNotNull(lastError)
             }
+
+            val message = postWithFallback()
 
             CoroutineScope(Dispatchers.IO).launch {
                 runCatching {

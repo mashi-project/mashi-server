@@ -3,6 +3,7 @@
 // Mocking imports for illustration
 import com.mashiverse.configs.TEST_CHANNEL_ID
 import com.mashiverse.data.db.daos.UserDao
+import com.mashiverse.data.models.GifRes
 import data.models.DownloadType
 import dev.kord.common.Color
 import dev.kord.common.entity.Permission
@@ -84,11 +85,11 @@ class MashupModule(private val kord: Kord) : KoinComponent {
             val filename = "composite$ext"
             val embedTitle = "${interaction.user.globalName}'s mashup"
 
-            suspend fun send(isSmall: Boolean): PublicMessageInteractionResponse {
+            suspend fun send(gifRes: GifRes): PublicMessageInteractionResponse {
                 val (bytes, size) = imageService.requestCompositeData(
                     wallet,
                     downloadType = downloadType,
-                    isSmall = isSmall
+                    gifRes = gifRes
                 ) ?: throw IllegalStateException("Failed to generate composite image data")
 
                 val channelProvider = ChannelProvider(size) { ByteReadChannel(bytes) }
@@ -110,12 +111,14 @@ class MashupModule(private val kord: Kord) : KoinComponent {
             }
 
             val interactionResponse = try {
-                send(isSmall = false)
+                send(gifRes = GifRes.NORMAL)
             } catch (e: KtorRequestException) {
-                if (e.status.code == 413) {
-                    send(isSmall = true)
-                } else {
-                    throw e
+                if (e.status.code != 413) throw e
+                try {
+                    send(gifRes = GifRes.SMALL)
+                } catch (e2: KtorRequestException) {
+                    if (e2.status.code != 413) throw e2
+                    send(gifRes = GifRes.XS)
                 }
             }
 

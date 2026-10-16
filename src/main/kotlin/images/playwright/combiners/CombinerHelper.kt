@@ -17,6 +17,13 @@ fun getSmallGifArgs() = mapOf(
     "TRAIT_HEIGHT" to SMALL_GIF_TRAIT_HEIGHT
 )
 
+fun getXsGifArgs() = mapOf(
+    "IMAGE_WIDTH" to XS_GIF_WIDTH,
+    "IMAGE_HEIGHT" to XS_GIF_HEIGHT,
+    "TRAIT_WIDTH" to XS_GIF_TRAIT_WIDTH,
+    "TRAIT_HEIGHT" to XS_GIF_TRAIT_HEIGHT
+)
+
 fun getPngArgs() = mapOf(
     "IMAGE_WIDTH" to PNG_WIDTH,
     "IMAGE_HEIGHT" to PNG_HEIGHT,

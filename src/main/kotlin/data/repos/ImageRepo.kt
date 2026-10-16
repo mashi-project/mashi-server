@@ -86,7 +86,7 @@ class ImageRepo : KoinComponent {
         mashup: Mashup,
         downloadType: DownloadType = DownloadType.PNG,
         wallet: String? = null,
-        isSmall: Boolean = false,
+        gifRes: GifRes = GifRes.NORMAL
     ): Pair<ByteArray, Long>? = withContext(Dispatchers.IO) {
         val assets = mashup.traits
         val colors = mashup.colors
@@ -115,7 +115,7 @@ class ImageRepo : KoinComponent {
         }
 
         // 2. GIF: the combiner takes the raw layers, manages its own temp files and returns the bytes.
-        val bytes = animCombiner.generateAnim(traitsWithMime, wallet = wallet, isSmall = isSmall)
+        val bytes = animCombiner.generateAnim(traitsWithMime, wallet = wallet, gifRes = gifRes)
         Pair(bytes, bytes.size.toLong())
     }
 
@@ -126,6 +126,6 @@ class ImageRepo : KoinComponent {
         mashup: Mashup,
         downloadType: DownloadType = DownloadType.PNG,
     ): ByteArray? {
-        return getImageData(mashup, downloadType)?.first
+        return getImageData(mashup, downloadType, gifRes = GifRes.XS)?.first
     }
 }

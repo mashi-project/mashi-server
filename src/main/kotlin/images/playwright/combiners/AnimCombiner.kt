@@ -1,9 +1,11 @@
 ﻿package com.mashiverse.images.playwright.combiners
 
 import com.google.gson.JsonObject
-import com.mashiverse.configs.*
+import com.mashiverse.configs.PLAYBACK_FPS
 import com.mashiverse.data.db.daos.HistoryDao
+import com.mashiverse.data.models.GifRes
 import com.mashiverse.images.playwright.PlaywrightPool
+import com.mashiverse.images.playwright.combiners.AnimCombiner.Companion.MIN_DURATION_SEC
 import com.mashiverse.utils.helpers.executeCmd
 import com.microsoft.playwright.Browser
 import com.microsoft.playwright.Page
@@ -17,8 +19,7 @@ import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.util.Base64
-import java.util.Locale
+import java.util.*
 import kotlin.io.path.absolutePathString
 import kotlin.math.roundToInt
 
@@ -31,6 +32,9 @@ class AnimCombiner : KoinComponent {
 
         private const val ORIGIN = "http://localhost"
 
+        // GIFs are at least this long; if the longest animated layer is longer, its length is used.
+        private const val MIN_DURATION_SEC = 5.0
+
         // Each worker occupies one PlaywrightPool slot (POOL_SIZE = 9), and the pool is shared with
         // CompositeCombiner. Capping at 6 leaves room for other requests so a single GIF can't
         // starve them. Workers beyond the pool size would only queue.
@@ -40,6 +44,7 @@ class AnimCombiner : KoinComponent {
         // Replaces animated WebP <img> with canvases drawable at arbitrary time and exposes:
         //   window.__sig(tMs)  -> string identifying which WebP frame each layer shows (no drawing)
         //   window.__seek(tMs) -> draws those frames
+        // Returns the duration (ms) of the longest animated layer, or 0 if none is animated.
         // Images are fetched from the same-origin route, so no data needs to be passed in.
         private val INIT_JS = """
             async () => {
@@ -110,7 +115,7 @@ class AnimCombiner : KoinComponent {
                 }
                 await new Promise(r => requestAnimationFrame(() => r()));
               };
-              return items.length;
+              return Math.max(0, ...items.map(it => it.total));   // longest animation in ms
             }
         """.trimIndent()
 
@@ -127,6 +132,8 @@ class AnimCombiner : KoinComponent {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
+     * The GIF lasts 5 seconds, or as long as the longest animated layer if that is more than 5 seconds.
+     *
      * @param traits layers bottom to top as (mime type, raw bytes). They are served to the browser
      *               directly from memory, so nothing is base64-encoded or written to disk for them.
      * @return the finished GIF. The working directory is created and removed here, so the caller never
@@ -136,13 +143,13 @@ class AnimCombiner : KoinComponent {
     suspend fun generateAnim(
         traits: List<Pair<String, ByteArray>>,
         wallet: String? = null,
-        isSmall: Boolean = false
+        gifRes: GifRes = GifRes.SMALL
     ): ByteArray {
         require(traits.isNotEmpty()) { "No layers to render" }
 
-        val width = if (isSmall) SMALL_GIF_WIDTH else GIF_WIDTH
-        val height = if (isSmall) SMALL_GIF_HEIGHT else GIF_HEIGHT
-        val args = if (isSmall) getSmallGifArgs() else getGifArgs()
+        val width = gifRes.args["IMAGE_WIDTH"]!!
+        val height = gifRes.args["IMAGE_HEIGHT"]!!
+        val args = gifRes.args
 
         val html = prepareHtml(
             urls = traits.indices.map { "$ORIGIN/img/$it" },
@@ -160,7 +167,6 @@ class AnimCombiner : KoinComponent {
             withContext(Dispatchers.IO) { Files.createDirectories(framesDir) }
 
             val fps = PLAYBACK_FPS.toDouble()
-            val totalFrames = (DURATION_LIMIT_SEC * fps).roundToInt()
 
             val runs = captureFrames(
                 html = html,
@@ -169,8 +175,7 @@ class AnimCombiner : KoinComponent {
                 framesDir = framesDir,
                 width = width,
                 height = height,
-                fps = fps,
-                totalFrames = totalFrames
+                fps = fps
             )
 
             val gifBytes = withContext(Dispatchers.IO) {
@@ -198,8 +203,11 @@ class AnimCombiner : KoinComponent {
     }
 
     /**
-     * Every worker opens its own browser page, computes the per-frame signatures (cheap, no drawing),
-     * derives the same list of unique frames, and screenshots its interleaved share of them.
+     * Every worker opens its own browser page, decodes the animated layers (which also yields the
+     * longest animation length), derives the total duration (max of [MIN_DURATION_SEC] and that length),
+     * computes the per-frame signatures (cheap, no drawing), derives the same list of unique frames,
+     * and screenshots the unique frames that fall into its own contiguous slice of the timeline
+     * (worker 0: first 1/N of the time, worker 1: the next 1/N, ...).
      * Returns the timeline as runs of identical frames; ffmpeg later encodes one picture per run.
      */
     private suspend fun captureFrames(
@@ -209,10 +217,8 @@ class AnimCombiner : KoinComponent {
         framesDir: Path,
         width: Int,
         height: Int,
-        fps: Double,
-        totalFrames: Int
+        fps: Double
     ): List<Run> {
-        val times = (0 until totalFrames).map { it * 1000.0 / fps }
         val shotParams = JsonObject().apply {
             addProperty("format", "png")
             addProperty("optimizeForSpeed", true)   // faster, larger PNG; lossless, so the key color survives
@@ -233,7 +239,8 @@ class AnimCombiner : KoinComponent {
                             // (WebCodecs needs a secure context; http://localhost counts as one).
                             page.route("$ORIGIN/**") { route ->
                                 val path = URI.create(route.request().url()).path
-                                val index = if (path.startsWith("/img/")) path.removePrefix("/img/").toIntOrNull() else null
+                                val index =
+                                    if (path.startsWith("/img/")) path.removePrefix("/img/").toIntOrNull() else null
                                 val trait = index?.let { traits.getOrNull(it) }
 
                                 when {
@@ -242,11 +249,13 @@ class AnimCombiner : KoinComponent {
                                             .setContentType("text/html; charset=utf-8")
                                             .setBody(html)
                                     )
+
                                     trait != null -> route.fulfill(
                                         Route.FulfillOptions()
                                             .setContentType(trait.first)
                                             .setBodyBytes(trait.second)
                                     )
+
                                     else -> route.fulfill(Route.FulfillOptions().setStatus(404))
                                 }
                             }
@@ -263,7 +272,13 @@ class AnimCombiner : KoinComponent {
 
                             // Must run while the layers are still <img> elements (it reads naturalWidth/Height).
                             preparePage(page, args)
-                            page.evaluate(INIT_JS)
+                            val maxAnimMs = (page.evaluate(INIT_JS) as Number).toDouble()
+
+                            // Less than 5 s -> 5 s, otherwise the longest layer's length.
+                            // Every worker gets the same value, so the slices below line up.
+                            val durationSec = maxOf(MIN_DURATION_SEC, maxAnimMs / 1000.0)
+                            val totalFrames = (durationSec * fps).roundToInt()
+                            val times = (0 until totalFrames).map { it * 1000.0 / fps }
 
                             @Suppress("UNCHECKED_CAST")
                             val sigs = page.evaluate("ts => ts.map(t => window.__sig(t))", times) as List<String>
@@ -271,14 +286,19 @@ class AnimCombiner : KoinComponent {
                             // Same input -> same result in every worker, so no coordination is needed.
                             val unique = uniqueFrameIndices(sigs)
 
+                            // Worker w owns the output frames in [segStart, segEnd): one contiguous
+                            // slice of time (e.g. 4 workers, 4 s: 0-1 s, 1-2 s, 2-3 s, 3-4 s).
+                            val segStart = worker * totalFrames / PARALLEL_WORKERS
+                            val segEnd = (worker + 1) * totalFrames / PARALLEL_WORKERS   // exclusive
+
                             val cdp = ctx.newCDPSession(page)
-                            var k = worker
-                            while (k < unique.size) {
-                                val i = unique[k]
+                            // `unique` is ascending, so skip ahead and stop early.
+                            for (i in unique) {
+                                if (i < segStart) continue
+                                if (i >= segEnd) break
                                 page.evaluate("t => window.__seek(t)", times[i])
                                 val b64 = cdp.send("Page.captureScreenshot", shotParams).get("data").asString
                                 Files.write(framesDir.resolve(frameName(i)), Base64.getDecoder().decode(b64))
-                                k += PARALLEL_WORKERS
                             }
                             page.close()
                             sigs

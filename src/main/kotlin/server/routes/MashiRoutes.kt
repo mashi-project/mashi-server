@@ -186,10 +186,8 @@ fun Application.mashiRoutes() {
 
                 generateScope.launch {
                     try {
-                        val data = imageService.requestCompositeData(wallet = walletId, downloadType = type)
-
                         if (discord) {
-                            MashiBot.getInstance().sendMashup(data = data, downloadType = type, wallet = walletId)
+                            MashiBot.getInstance().sendMashup(data = null, downloadType = type, wallet = walletId)
                         }
 
                         // Ensure your mobile app subscribes to this topic (walletId)
