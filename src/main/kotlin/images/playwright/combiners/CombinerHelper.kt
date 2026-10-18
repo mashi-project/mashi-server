@@ -66,7 +66,7 @@ fun prepareHtml(
                     }
                 </style>
             </head>
-            <body style="margin:0; width:${width}px; height:${height}px; background:${if (isTransparent) "transparent" else "#FF00FF"}; overflow:hidden;">
+            <body style="margin:0; width:${width}px; height:${height}px; background:${if (isTransparent) "transparent" else "#111214"}; overflow:hidden;">
                 $imageTags
             </body>
         </html>
