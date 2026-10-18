@@ -368,17 +368,16 @@ class AnimCombiner : KoinComponent {
         val baseFilter = "format=rgba,colorkey=$keyColor:$KEY_SIMILARITY:0.0"
 
         val filterGraph = "[0:v]$baseFilter,split[stream][paletteSource];" +
-                "[paletteSource]palettegen=max_colors=256:stats_mode=diff:reserve_transparent=1[palette];" +
-                "[stream][palette]paletteuse=dither=bayer:bayer_scale=3:alpha_threshold=128:diff_mode=rectangle"
+                "[paletteSource]palettegen=max_colors=256:stats_mode=full:reserve_transparent=1[palette];" +
+                "[stream][palette]paletteuse=dither=bayer:bayer_scale=3:alpha_threshold=128"
 
         executeCmd(
-            "ffmpeg",
-            "-y",
-            "-threads", "0",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", listPath.absolutePathString(),
+            "ffmpeg", "-y", "-threads", "0",
+            "-f", "concat", "-safe", "0", "-i", listPath.absolutePathString(),
             "-filter_complex", filterGraph,
+            "-fps_mode", "vfr",
+            "-gifflags", "-offsetting-transdiff",
+            "-loop", "0",
             gifPath.absolutePathString()
         )
 
