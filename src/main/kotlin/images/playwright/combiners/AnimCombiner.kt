@@ -28,7 +28,7 @@ class AnimCombiner : KoinComponent {
     companion object {
         // Background color used in prepareHtml (#FF00FF) and keyed out to transparent in ffmpeg.
         const val KEY_HEX = "111214"
-        const val KEY_SIMILARITY = "0.01"
+        const val KEY_SIMILARITY = "0.0001"
 
         private const val ORIGIN = "http://localhost"
 
