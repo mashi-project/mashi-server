@@ -1,5 +1,6 @@
 package com.mashiverse.data.di
 
+import com.mashiverse.data.db.daos.EventDao
 import com.mashiverse.data.db.daos.HistoryDao
 import com.mashiverse.data.db.daos.ImageDao
 import com.mashiverse.data.db.daos.UserDao
@@ -41,6 +42,8 @@ fun Application.configureKoin() {
             single<AnimService> { AnimService() }
 
             single<HistoryDao> { HistoryDao() }
+
+            single<EventDao> { EventDao() }
         })
     }
 }

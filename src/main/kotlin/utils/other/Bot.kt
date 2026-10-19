@@ -10,8 +10,12 @@ import dev.kord.gateway.Intent
 import dev.kord.gateway.Intents
 import dev.kord.gateway.PrivilegedIntent
 import io.ktor.server.application.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.io.File
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 
 @OptIn(PrivilegedIntent::class)
 fun Application.bot() {
@@ -22,6 +26,8 @@ fun Application.bot() {
         val bot = MashiBot.initialize(kord)
         bot.setup()
 
+        launch { launchEventService() }
+
         kord.login {
             intents = Intents {
                 +Intent.Guilds
@@ -29,6 +35,7 @@ fun Application.bot() {
                 +Intent.GuildMessageReactions
             }
         }
+
     }
 }
 
@@ -39,5 +46,14 @@ fun initFirebase() {
             .setCredentials(GoogleCredentials.fromStream(serviceAccountFile.inputStream()))
             .build()
         FirebaseApp.initializeApp(options)
+    }
+}
+
+suspend fun launchEventService() {
+    delay(2.minutes)
+    repeat(3) { i ->
+        delay(1.hours)
+        // do something here, e.g. send the ghost embed
+        MashiBot.getInstance().sendEventEmbed(i + 1)
     }
 }

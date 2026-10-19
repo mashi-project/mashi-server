@@ -1,14 +1,17 @@
 ﻿package com.mashiverse.discord
 
 import com.mashiverse.configs.*
+import com.mashiverse.data.db.daos.EventDao
 import com.mashiverse.data.db.daos.UserDao
 import com.mashiverse.data.models.GifRes
 import com.mashiverse.data.remote.apis.IpfsApi
 import com.mashiverse.data.remote.dto.NotifyDto
+import com.mashiverse.discord.modules.GHOST
 import com.mashiverse.discord.modules.MashupModule
 import com.mashiverse.discord.modules.RebootModule
 import com.mashiverse.discord.modules.WalletModule
 import com.mashiverse.discord.modules.getNotifyEmbed
+import com.mashiverse.discord.modules.registerReactionTracking
 import com.mashiverse.services.AnimService
 import data.models.DownloadType
 import dev.kord.common.Color
@@ -30,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.util.Base64
 import kotlin.random.Random
 
 class MashiBot private constructor(val kord: Kord) : KoinComponent {
@@ -37,6 +41,8 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
     private val ipfsApi by inject<IpfsApi>()
     private val userDao by inject<UserDao>()
     private val imageService by inject<ImageService>()
+
+    private val eventDao by inject<EventDao>()
 
     companion object {
         @Volatile
@@ -59,6 +65,7 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
         MashupModule(kord)
         WalletModule(kord)
         RebootModule(kord)
+        registerReactionTracking(kord, eventDao)
     }
 
     /** Converts ipfs://CID/path into a public gateway URL. */
@@ -233,6 +240,40 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
         } catch (e: Exception) {
             println("sendMashup failed for $wallet: ${e::class.simpleName}: ${e.message}")
             reportToTestChannel("Mashup: ${e::class.simpleName}: ${e.message} for wallet $wallet")
+        }
+    }
+
+    suspend fun sendEventEmbed(index: Int): Message? {
+        return try {
+            val randomChannelId = CHANNELS.random()
+            val channel = kord.getChannelOf<TextChannel>(Snowflake(randomChannelId)) ?: return null
+
+            val mashi: ByteArray by lazy {
+                Base64.getDecoder().decode(base64)
+            }
+            val fileName = "image.png"
+
+            val message = channel.createMessage {
+                addFile(
+                    name = fileName,
+                    contentProvider = ChannelProvider(size = mashi.size.toLong()) {
+                        ByteReadChannel(mashi)
+                    }
+                )
+                embed {
+                    this.title = "#$index: Boo-Rex event"
+                    color = Color(Random.nextInt(0xFFFFFF))
+                    image = "attachment://$fileName"
+                }
+            }
+
+            message.addReaction(GHOST)
+            message
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            println("sendGhostEmbed failed: ${e::class.simpleName}: ${e.message}")
+            null
         }
     }
 }
