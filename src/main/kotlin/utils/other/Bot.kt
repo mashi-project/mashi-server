@@ -26,7 +26,7 @@ fun Application.bot() {
         val bot = MashiBot.initialize(kord)
         bot.setup()
 
-        launch { launchEventService() }
+       // launch { launchEventService() }
 
         kord.login {
             intents = Intents {
@@ -51,9 +51,9 @@ fun initFirebase() {
 
 suspend fun launchEventService() {
     delay(2.minutes)
-    repeat(3) { i ->
+
+    for (i in 1..13) {
+        MashiBot.getInstance().sendEventEmbed(i)
         delay(1.hours)
-        // do something here, e.g. send the ghost embed
-        MashiBot.getInstance().sendEventEmbed(i + 1)
     }
 }

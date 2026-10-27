@@ -188,6 +188,11 @@ fun Application.mashiRoutes() {
                     try {
                         if (discord) {
                             MashiBot.getInstance().sendMashup(data = null, downloadType = type, wallet = walletId)
+                        } else {
+                            imageService.requestCompositeData(
+                                wallet = walletId,
+                                downloadType = type
+                            )
                         }
 
                         // Ensure your mobile app subscribes to this topic (walletId)

@@ -7,6 +7,7 @@ import com.mashiverse.data.models.GifRes
 import com.mashiverse.data.remote.apis.IpfsApi
 import com.mashiverse.data.remote.dto.NotifyDto
 import com.mashiverse.discord.modules.GHOST
+import com.mashiverse.discord.modules.MAX_UPLOAD_BYTES
 import com.mashiverse.discord.modules.MashupModule
 import com.mashiverse.discord.modules.RebootModule
 import com.mashiverse.discord.modules.WalletModule
@@ -178,8 +179,7 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
             val ext = if (downloadType == DownloadType.PNG) ".png" else ".gif"
             val filename = "composite$ext"
 
-            suspend fun post(payload: Pair<ByteArray, Long>): Message {
-                val (bytes, size) = payload
+            suspend fun post(bytes: ByteArray, size: Long): Message {
                 val channelProvider = ChannelProvider(size) { ByteReadChannel(bytes) }
 
                 return channel.createMessage {
@@ -193,45 +193,47 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
                 }
             }
 
-            val initialData = data
-                ?: imageService.requestCompositeData(wallet, downloadType = downloadType)
-                ?: throw IllegalStateException("Failed to generate composite image data")
-
-            // Discord answers 413 when the file is too big: retry with progressively smaller versions.
-            // Any other error is rethrown immediately, and a 413 on the last (smallest) one propagates.
-            suspend fun postWithFallback(): Message {
-                var lastError: KtorRequestException? = null
-
-                try {
-                    return post(initialData)
-                } catch (e: KtorRequestException) {
-                    if (e.status.code != 413) throw e
-                    lastError = e
-                }
-
-                for (res in listOf(GifRes.NORMAL, GifRes.SMALL, GifRes.XS)) {
-                    val smaller = imageService.requestCompositeData(
-                        wallet,
-                        downloadType = downloadType,
-                        gifRes = res
-                    ) ?: throw IllegalStateException("Failed to generate $res composite image data")
-
-                    try {
-                        return post(smaller)
-                    } catch (e: KtorRequestException) {
-                        if (e.status.code != 413) throw e
-                        lastError = e
-                    }
-                }
-
-                throw checkNotNull(lastError)
+            // Best quality first. PNGs have no GIF resolution, so only one attempt.
+            val resolutions = if (downloadType == DownloadType.PNG) {
+                listOf(GifRes.NORMAL)
+            } else {
+                listOf(GifRes.NORMAL, GifRes.SMALL, GifRes.XS)
             }
 
-            val message = postWithFallback()
+            var message: Message? = null
+
+            for ((index, res) in resolutions.withIndex()) {
+                val isLast = index == resolutions.lastIndex
+
+                // Reuse the pre-generated data for the first attempt, generate the rest on demand
+                val payload = (if (index == 0) data else null)
+                    ?: imageService.requestCompositeData(
+                        wallet = wallet,
+                        downloadType = downloadType,
+                        gifRes = res
+                    )
+                    ?: throw IllegalStateException("Failed to generate $res composite image data")
+
+                val (bytes, size) = payload
+
+                // Too big -> next resolution (unless it's the last one)
+                if (size > MAX_UPLOAD_BYTES && !isLast) continue
+
+                try {
+                    message = post(bytes, size)
+                    break
+                } catch (e: KtorRequestException) {
+                    // Safety net: Discord still said 413
+                    if (e.status.code != 413 || isLast) throw e
+                }
+            }
+
+            val sent = message
+                ?: throw IllegalStateException("Could not produce an uploadable image")
 
             CoroutineScope(Dispatchers.IO).launch {
                 runCatching {
-                    message.addReaction(ReactionEmoji.Unicode("🔥"))
+                    sent.addReaction(ReactionEmoji.Unicode("🔥"))
                 }
             }
 
@@ -261,7 +263,7 @@ class MashiBot private constructor(val kord: Kord) : KoinComponent {
                     }
                 )
                 embed {
-                    this.title = "#$index: Boo-Rex event"
+                    this.title = "#$index: Spider-Boo event"
                     color = Color(Random.nextInt(0xFFFFFF))
                     image = "attachment://$fileName"
                 }

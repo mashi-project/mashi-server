@@ -28,6 +28,8 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.random.Random
 
+const val MAX_UPLOAD_BYTES = (24.5 * 1024 * 1024).toLong() // 24.5 MB
+
 class MashupModule(private val kord: Kord) : KoinComponent {
     private val userDao by inject<UserDao>()
     private val imageService by inject<ImageService>()
@@ -85,13 +87,14 @@ class MashupModule(private val kord: Kord) : KoinComponent {
             val filename = "composite$ext"
             val embedTitle = "${interaction.user.globalName}'s mashup"
 
-            suspend fun send(gifRes: GifRes): PublicMessageInteractionResponse {
-                val (bytes, size) = imageService.requestCompositeData(
-                    wallet,
-                    downloadType = downloadType,
-                    gifRes = gifRes
-                ) ?: throw IllegalStateException("Failed to generate composite image data")
+            // Resolutions to try, best quality first. PNGs have no GIF resolution, so only try once.
+            val resolutions = if (downloadType == DownloadType.PNG) {
+                listOf(GifRes.NORMAL)
+            } else {
+                listOf(GifRes.NORMAL, GifRes.SMALL, GifRes.XS)
+            }
 
+            suspend fun send(bytes: ByteArray, size: Long): PublicMessageInteractionResponse {
                 val channelProvider = ChannelProvider(size) { ByteReadChannel(bytes) }
 
                 return response.respond {
@@ -110,21 +113,35 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                 }
             }
 
-            val interactionResponse = try {
-                send(gifRes = GifRes.NORMAL)
-            } catch (e: KtorRequestException) {
-                if (e.status.code != 413) throw e
+            var interactionResponse: PublicMessageInteractionResponse? = null
+
+            for ((index, res) in resolutions.withIndex()) {
+                val isLast = index == resolutions.lastIndex
+
+                val (bytes, size) = imageService.requestCompositeData(
+                    wallet,
+                    downloadType = downloadType,
+                    gifRes = res
+                ) ?: throw IllegalStateException("Failed to generate composite image data")
+
+                // Too big -> go to the next resolution (unless it's the last one)
+                if (size > MAX_UPLOAD_BYTES && !isLast) continue
+
                 try {
-                    send(gifRes = GifRes.SMALL)
-                } catch (e2: KtorRequestException) {
-                    if (e2.status.code != 413) throw e2
-                    send(gifRes = GifRes.XS)
+                    interactionResponse = send(bytes, size)
+                    break
+                } catch (e: KtorRequestException) {
+                    // Safety net: Discord still said it's too large
+                    if (e.status.code != 413 || isLast) throw e
                 }
             }
 
+            val sent = interactionResponse
+                ?: throw IllegalStateException("Could not produce an uploadable image")
+
             launch {
                 runCatching {
-                    interactionResponse.message.addReaction(ReactionEmoji.Unicode("🔥"))
+                    sent.message.addReaction(ReactionEmoji.Unicode("🔥"))
                 }
             }
 
