@@ -4,6 +4,8 @@
 import com.mashiverse.configs.TEST_CHANNEL_ID
 import com.mashiverse.data.db.daos.UserDao
 import com.mashiverse.data.models.GifRes
+import com.mashiverse.services.FallbackMashup
+import com.mashiverse.services.FallbackService
 import data.models.DownloadType
 import dev.kord.common.Color
 import dev.kord.common.entity.Permission
@@ -26,6 +28,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.util.*
 import kotlin.random.Random
 
 const val MAX_UPLOAD_BYTES = (24.5 * 1024 * 1024).toLong() // 24.5 MB
@@ -91,7 +94,8 @@ class MashupModule(private val kord: Kord) : KoinComponent {
             val resolutions = if (downloadType == DownloadType.PNG) {
                 listOf(GifRes.NORMAL)
             } else {
-                listOf(GifRes.NORMAL, GifRes.SMALL, GifRes.XS)
+//                listOf(GifRes.NORMAL, GifRes.SMALL, GifRes.XS)
+                listOf(GifRes.NORMAL)
             }
 
             suspend fun send(bytes: ByteArray, size: Long): PublicMessageInteractionResponse {
@@ -146,16 +150,43 @@ class MashupModule(private val kord: Kord) : KoinComponent {
             }
 
         } catch (e: Exception) {
-            val channel = kord.getChannelOf<TextChannel>(Snowflake(TEST_CHANNEL_ID))
-            channel?.createMessage("/mashi: ${e.message}")
+            if (e is KtorRequestException) {
+                if (e.status.code == 413) {
+                    val uuidStr = UUID.randomUUID().toString()
+                    val downloadType = DownloadType.valueOf(imageOpt)
 
-            runCatching {
-                interaction.kord.rest.interaction.createFollowupMessage(
-                    interaction.applicationId,
-                    interaction.token,
-                    ephemeral = true
-                ) {
-                    content = "Something went wrong"
+                    val mashup = imageService.requestCompositeData(
+                        wallet,
+                        downloadType = downloadType,
+                        gifRes = GifRes.SMALL
+                    )
+
+                    if (mashup != null) {
+                        val fallbackMashup = FallbackMashup(
+                            type = downloadType,
+                            content = mashup.first
+                        )
+
+                        FallbackService.addMashup(uuidStr, fallbackMashup)
+                        response.respond {
+                            content = "Here's mashup download link: https://katzemon.com/api/mashi/fallback/${uuidStr}"
+                        }
+                    } else {
+                        response.respond { content = "Please let us know if you have that issue" }
+                    }
+                }
+            } else {
+                val channel = kord.getChannelOf<TextChannel>(Snowflake(TEST_CHANNEL_ID))
+                channel?.createMessage("/mashi: ${e.message}")
+
+                runCatching {
+                    interaction.kord.rest.interaction.createFollowupMessage(
+                        interaction.applicationId,
+                        interaction.token,
+                        ephemeral = true
+                    ) {
+                        content = "Something went wrong"
+                    }
                 }
             }
         }
