@@ -70,32 +70,61 @@ class MashupModule(private val kord: Kord) : KoinComponent {
 
     private suspend fun handleMashi(event: ChatInputCommandInteractionCreateEvent) = coroutineScope {
         val interaction = event.interaction
-        val imageOpt = interaction.command.options["image"]?.value?.toString() ?: "PNG"
         val userId = interaction.user.id.value.toLong()
+        val downloadType = runCatching {
+            DownloadType.valueOf(interaction.command.options["image"]?.value?.toString() ?: "PNG")
+        }.getOrDefault(DownloadType.PNG)
 
-        val wallet = userDao.getWallet(userId)
-
-        if (wallet == null) {
-            interaction.deferEphemeralResponse().respond {
-                content = "Please use /connect_wallet command"
-            }
+        // 1) Acknowledge FIRST. Discord gives only 3 seconds; anything slow (DB, HTTP) must come after this.
+        val response = try {
+            interaction.deferPublicResponse()
+        } catch (e: KtorRequestException) {
+            // 404 "Unknown interaction": the 3s window was missed or another instance already acked it.
+            println("/mashi: could not defer (status ${e.status.code}): ${e.message}")
             return@coroutineScope
         }
 
-        val response = interaction.deferPublicResponse()
+        // Safe error reporting: never throws, never touches a dead interaction.
+        suspend fun fail(e: Throwable) {
+            runCatching {
+                kord.getChannelOf<TextChannel>(Snowflake(TEST_CHANNEL_ID))
+                    ?.createMessage("/mashi: ${e::class.simpleName}: ${e.message}")
+            }
+            runCatching { response.respond { content = "Something went wrong" } }
+        }
 
         try {
-            val downloadType = DownloadType.valueOf(imageOpt)
+            val wallet = userDao.getWallet(userId)
+
+            if (wallet == null) {
+                // The defer was public, so replace the loading message with an ephemeral hint.
+                runCatching {
+                    interaction.kord.rest.interaction.deleteOriginalInteractionResponse(
+                        interaction.applicationId,
+                        interaction.token
+                    )
+                }
+                runCatching {
+                    interaction.kord.rest.interaction.createFollowupMessage(
+                        interaction.applicationId,
+                        interaction.token,
+                        ephemeral = true
+                    ) {
+                        content = "Please use /connect_wallet command"
+                    }
+                }
+                return@coroutineScope
+            }
+
             val ext = if (downloadType == DownloadType.PNG) ".png" else ".gif"
             val filename = "composite$ext"
             val embedTitle = "${interaction.user.globalName}'s mashup"
 
-            // Resolutions to try, best quality first. PNGs have no GIF resolution, so only try once.
+            // Best quality first. PNGs have no GIF resolution, so only try once.
             val resolutions = if (downloadType == DownloadType.PNG) {
                 listOf(GifRes.NORMAL)
             } else {
-//                listOf(GifRes.NORMAL, GifRes.SMALL, GifRes.XS)
-                listOf(GifRes.NORMAL)
+                listOf(GifRes.NORMAL, GifRes.SMALL, GifRes.XS)
             }
 
             suspend fun send(bytes: ByteArray, size: Long): PublicMessageInteractionResponse {
@@ -117,7 +146,7 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                 }
             }
 
-            var interactionResponse: PublicMessageInteractionResponse? = null
+            var sent: PublicMessageInteractionResponse? = null
 
             for ((index, res) in resolutions.withIndex()) {
                 val isLast = index == resolutions.lastIndex
@@ -128,66 +157,60 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                     gifRes = res
                 ) ?: throw IllegalStateException("Failed to generate composite image data")
 
-                // Too big -> go to the next resolution (unless it's the last one)
+                // Too big -> try the next resolution (unless this is the last one)
                 if (size > MAX_UPLOAD_BYTES && !isLast) continue
 
                 try {
-                    interactionResponse = send(bytes, size)
+                    sent = send(bytes, size)
                     break
                 } catch (e: KtorRequestException) {
-                    // Safety net: Discord still said it's too large
+                    // Safety net: Discord still said it's too large. Anything else is a real error.
                     if (e.status.code != 413 || isLast) throw e
                 }
             }
 
-            val sent = interactionResponse
-                ?: throw IllegalStateException("Could not produce an uploadable image")
+            val message = sent ?: throw IllegalStateException("Could not produce an uploadable image")
 
             launch {
-                runCatching {
-                    sent.message.addReaction(ReactionEmoji.Unicode("🔥"))
-                }
+                runCatching { message.message.addReaction(ReactionEmoji.Unicode("🔥")) }
             }
 
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is KtorRequestException) {
-                if (e.status.code == 413) {
-                    val uuidStr = UUID.randomUUID().toString()
-                    val downloadType = DownloadType.valueOf(imageOpt)
+            val status = (e as? KtorRequestException)?.status?.code
 
+            when (status) {
+                // Interaction expired or token invalid: there is nothing left to respond to.
+                404 -> println("/mashi: interaction expired: ${e.message}")
+
+                // Still too large at the smallest resolution -> hand out a download link.
+                413 -> try {
                     val mashup = imageService.requestCompositeData(
-                        wallet,
+                        userDao.getWallet(userId) ?: throw IllegalStateException("Wallet disappeared"),
                         downloadType = downloadType,
                         gifRes = GifRes.SMALL
                     )
 
                     if (mashup != null) {
-                        val fallbackMashup = FallbackMashup(
-                            type = downloadType,
-                            content = mashup.first
+                        val uuidStr = UUID.randomUUID().toString()
+                        FallbackService.addMashup(
+                            uuidStr,
+                            FallbackMashup(type = downloadType, content = mashup.first)
                         )
-
-                        FallbackService.addMashup(uuidStr, fallbackMashup)
                         response.respond {
-                            content = "Here's mashup download link: https://katzemon.com/api/mashi/fallback/${uuidStr}"
+                            content = "Here's mashup download link: https://katzemon.com/api/mashi/fallback/$uuidStr"
                         }
                     } else {
                         response.respond { content = "Please let us know if you have that issue" }
                     }
+                } catch (inner: CancellationException) {
+                    throw inner
+                } catch (inner: Exception) {
+                    fail(inner)
                 }
-            } else {
-                val channel = kord.getChannelOf<TextChannel>(Snowflake(TEST_CHANNEL_ID))
-                channel?.createMessage("/mashi: ${e.message}")
 
-                runCatching {
-                    interaction.kord.rest.interaction.createFollowupMessage(
-                        interaction.applicationId,
-                        interaction.token,
-                        ephemeral = true
-                    ) {
-                        content = "Something went wrong"
-                    }
-                }
+                else -> fail(e)
             }
         }
     }
