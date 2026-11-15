@@ -124,7 +124,7 @@ class MashupModule(private val kord: Kord) : KoinComponent {
             val resolutions = if (downloadType == DownloadType.PNG) {
                 listOf(GifRes.NORMAL)
             } else {
-                listOf(GifRes.NORMAL, GifRes.SMALL, GifRes.XS)
+                listOf(GifRes.NORMAL, GifRes.SMALL, GifRes.XS, GifRes.XSS)
             }
 
             suspend fun send(bytes: ByteArray, size: Long): PublicMessageInteractionResponse {
@@ -199,7 +199,7 @@ class MashupModule(private val kord: Kord) : KoinComponent {
                             FallbackMashup(type = downloadType, content = mashup.first)
                         )
                         response.respond {
-                            content = "Here's mashup download link: https://katzemon.com/api/mashi/fallback/$uuidStr"
+                            content = "You have 30 min to download mashup: https://katzemon.com/api/mashi/fallback/$uuidStr"
                         }
                     } else {
                         response.respond { content = "Please let us know if you have that issue" }

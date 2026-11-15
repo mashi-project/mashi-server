@@ -20,6 +20,11 @@ const val XS_GIF_HEIGHT = (736 * 0.75).toInt()
 const val XS_GIF_TRAIT_WIDTH = (380 * 0.75).toInt()
 const val XS_GIF_TRAIT_HEIGHT = (600 * 0.75).toInt()
 
+const val XSS_GIF_WIDTH = (552 * 0.5).toInt()
+const val XSS_GIF_HEIGHT = (736 * 0.5).toInt()
+const val XSS_GIF_TRAIT_WIDTH = (380 * 0.5).toInt()
+const val XSS_GIF_TRAIT_HEIGHT = (600 * 0.5).toInt()
+
 // PNG
 const val PNG_WIDTH = (552 * 1.5).toInt()
 const val PNG_HEIGHT = (736 * 1.5).toInt()
