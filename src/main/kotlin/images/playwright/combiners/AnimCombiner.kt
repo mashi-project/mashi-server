@@ -35,6 +35,17 @@ class AnimCombiner : KoinComponent {
         // GIFs are at least this long; if the longest animated layer is longer, its length is used.
         private const val MIN_DURATION_SEC = 5.0
 
+        // ---- Compression settings ("BALANCED" preset, frame rate unchanged) ----
+        // Palette size. One entry is reserved for transparency by palettegen.
+        private const val GIF_MAX_COLORS = 256
+
+        // Ordered dithering strength (0..5). Higher = less visible pattern and smaller file.
+        private const val GIF_BAYER_SCALE = 5
+
+        // gifsicle lossy LZW level (needs a lossy-enabled build, e.g. the "giflossy" fork).
+        // 0 = off. 20..80 is the useful range.
+        private const val GIFSICLE_LOSSY = 70
+
         // Each worker occupies one PlaywrightPool slot (POOL_SIZE = 9), and the pool is shared with
         // CompositeCombiner. Capping at 6 leaves room for other requests so a single GIF can't
         // starve them. Workers beyond the pool size would only queue.
@@ -180,7 +191,8 @@ class AnimCombiner : KoinComponent {
 
             val gifBytes = withContext(Dispatchers.IO) {
                 val gifPath = makeGifFromRuns(runs = runs, framesDir = framesDir, workDir = workDir, fps = fps)
-                Files.readAllBytes(gifPath)
+                val finalPath = optimizeGif(gifPath, workDir)
+                Files.readAllBytes(finalPath)
             }
 
             // Save history asynchronously from the bytes in memory
@@ -345,6 +357,10 @@ class AnimCombiner : KoinComponent {
      * Encodes one picture per run, using the concat demuxer so each picture keeps its real duration
      * (run length / fps). ffmpeg now processes only the distinct pictures instead of every output frame,
      * and the GIF contains one frame per run with the right delay, so the file is smaller as well.
+     *
+     * Compression: 256-colour palette, bayer_scale=5 dithering, and diff_mode=rectangle so only the
+     * changed region of each frame is stored. The transdiff flag is no longer disabled, so unchanged
+     * pixels between frames become transparent and compress away.
      */
     private fun makeGifFromRuns(runs: List<Run>, framesDir: Path, workDir: Path, fps: Double): Path {
         val gifPath = workDir.resolve("result.gif")
@@ -368,19 +384,37 @@ class AnimCombiner : KoinComponent {
         val baseFilter = "format=rgba,colorkey=$keyColor:$KEY_SIMILARITY:0.0"
 
         val filterGraph = "[0:v]$baseFilter,split[stream][paletteSource];" +
-                "[paletteSource]palettegen=max_colors=256:stats_mode=full:reserve_transparent=1[palette];" +
-                "[stream][palette]paletteuse=dither=bayer:bayer_scale=3:alpha_threshold=128"
+                "[paletteSource]palettegen=max_colors=$GIF_MAX_COLORS:stats_mode=full:reserve_transparent=1[palette];" +
+                "[stream][palette]paletteuse=dither=bayer:bayer_scale=$GIF_BAYER_SCALE:diff_mode=rectangle:alpha_threshold=128"
 
         executeCmd(
             "ffmpeg", "-y", "-threads", "0",
             "-f", "concat", "-safe", "0", "-i", listPath.absolutePathString(),
             "-filter_complex", filterGraph,
             "-fps_mode", "vfr",
-            "-gifflags", "-offsetting-transdiff",
             "-loop", "0",
             gifPath.absolutePathString()
         )
 
         return gifPath
+    }
+
+    /**
+     * Optional lossy post-pass with gifsicle. Never fails the request: if gifsicle is missing, does not
+     * support --lossy, errors out, or produces a bigger file, the original GIF is returned.
+     */
+    private fun optimizeGif(src: Path, workDir: Path): Path {
+        if (GIFSICLE_LOSSY <= 0) return src
+        val dst = workDir.resolve("result-opt.gif")
+        return try {
+            executeCmd(
+                "gifsicle", "-O3", "--lossy=$GIFSICLE_LOSSY", "--no-warnings",
+                src.absolutePathString(), "-o", dst.absolutePathString()
+            )
+            if (Files.exists(dst) && Files.size(dst) in 1 until Files.size(src)) dst else src
+        } catch (e: Exception) {
+            System.err.println("gifsicle optimization skipped: ${e.message}")
+            src
+        }
     }
 }

@@ -20,16 +20,38 @@ COPY mashis-firebase-adminsdk-fbsvc-2bfb99f3d9.json* ./
 RUN ./gradlew installDist --no-daemon
 
 # ==========================================
-# Stage 2: Create the runtime image
+# Stage 2: Build gifsicle with --lossy support (giflossy fork)
+# The stock Ubuntu gifsicle package does NOT support --lossy.
+# Same base as the runtime image (Ubuntu 24.04 "noble"), so the binary is compatible.
+# ==========================================
+FROM ubuntu:24.04 AS gifsicle
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential autoconf automake git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN git clone --depth 1 https://github.com/kornelski/giflossy.git . \
+    && autoreconf -i \
+    && ./configure --disable-gifview --disable-gifdiff --prefix=/opt/giflossy \
+    && make -j"$(nproc)" \
+    && make install \
+    # Fail the image build early if the binary has no lossy option
+    && /opt/giflossy/bin/gifsicle --help | grep -q -- '--lossy'
+
+# ==========================================
+# Stage 3: Create the runtime image
 # ==========================================
 FROM mcr.microsoft.com/playwright/java:v1.59.0-noble AS runtime
 
-# Install native dependencies required for OpenCV/OpenPNP, ffmpeg, and gifsicle for GIF optimization
+# Install native dependencies required for OpenCV/OpenPNP and ffmpeg
+# (gifsicle comes from the giflossy build stage, not from apt)
 RUN apt-get update && apt-get install -y \
     libopencv-dev \
     ffmpeg \
-    gifsicle \
     && rm -rf /var/lib/apt/lists/*
+
+# Lossy-capable gifsicle used by AnimCombiner.optimizeGif()
+COPY --from=gifsicle /opt/giflossy/bin/gifsicle /usr/local/bin/gifsicle
 
 WORKDIR /app
 
