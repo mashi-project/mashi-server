@@ -25,11 +25,13 @@ RUN ./gradlew installDist --no-daemon
 FROM mcr.microsoft.com/playwright/java:v1.59.0-noble AS runtime
 
 # Install native dependencies required for OpenCV/OpenPNP, ffmpeg, and gifsicle for GIF optimization
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libopencv-dev \
     ffmpeg \
     gifsicle \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # Fail the build if gifsicle is too old for --lossy (needs >= 1.92)
+    && gifsicle --help | grep -q -- '--lossy'
 
 WORKDIR /app
 

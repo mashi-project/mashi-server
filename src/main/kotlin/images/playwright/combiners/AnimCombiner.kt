@@ -26,6 +26,9 @@ import kotlin.math.roundToInt
 class AnimCombiner : KoinComponent {
 
     companion object {
+        private const val GIFSICLE_LOSSY = 80
+        private const val GIFSICLE_OPTIMIZE_LEVEL = "-O3"
+
         // Background color used in prepareHtml (#FF00FF) and keyed out to transparent in ffmpeg.
         const val KEY_HEX = "111214"
         const val KEY_SIMILARITY = "0.0001"
@@ -179,7 +182,8 @@ class AnimCombiner : KoinComponent {
             )
 
             val gifBytes = withContext(Dispatchers.IO) {
-                val gifPath = makeGifFromRuns(runs = runs, framesDir = framesDir, workDir = workDir, fps = fps)
+                val rawPath = makeGifFromRuns(runs = runs, framesDir = framesDir, workDir = workDir, fps = fps)
+                val gifPath = optimizeGif(rawPath, workDir)
                 Files.readAllBytes(gifPath)
             }
 
@@ -382,5 +386,28 @@ class AnimCombiner : KoinComponent {
         )
 
         return gifPath
+    }
+
+    /**
+     * Runs gifsicle with lossy LZW compression over [input] and returns the optimised file.
+     * If gifsicle is missing, fails, or produces a larger file, the original GIF is returned,
+     * so this step can never break or bloat a render.
+     */
+    private fun optimizeGif(input: Path, workDir: Path): Path {
+        val output = workDir.resolve("result-opt.gif")
+        return try {
+            executeCmd(
+                "gifsicle",
+                GIFSICLE_OPTIMIZE_LEVEL,
+                "--lossy=$GIFSICLE_LOSSY",
+                "--no-warnings",
+                input.absolutePathString(),
+                "-o", output.absolutePathString()
+            )
+            if (Files.exists(output) && Files.size(output) in 1 until Files.size(input)) output else input
+        } catch (e: Exception) {
+            System.err.println("gifsicle optimization failed, using unoptimized GIF: ${e.message}")
+            input
+        }
     }
 }
