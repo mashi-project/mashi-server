@@ -23,6 +23,41 @@ class CompositeCombiner : KoinComponent {
     private companion object {
         const val ORIGIN = "http://localhost"
 
+        // Replaces every <img> with a static render of its first frame (frame 0).
+        // Animated GIF / WebP / APNG / AVIF would otherwise be captured at whatever frame
+        // happens to be showing when the screenshot is taken.
+        // If the image can't be decoded this way, it is left untouched.
+        const val FIRST_FRAME_JS = """
+            async () => {
+                if (!('ImageDecoder' in window)) return;
+                const imgs = Array.from(document.images);
+                await Promise.all(imgs.map(async img => {
+                    try {
+                        const res = await fetch(img.src);
+                        const type = (res.headers.get('content-type') || '').split(';')[0];
+                        if (!(await ImageDecoder.isTypeSupported(type))) return;
+
+                        const decoder = new ImageDecoder({ data: res.body, type });
+                        const { image } = await decoder.decode({ frameIndex: 0 });
+
+                        const canvas = document.createElement('canvas');
+                        canvas.width = image.displayWidth;
+                        canvas.height = image.displayHeight;
+                        canvas.getContext('2d').drawImage(image, 0, 0);
+                        image.close();
+                        decoder.close();
+
+                        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+                        await new Promise((ok, fail) => {
+                            img.onload = ok;
+                            img.onerror = fail;
+                            img.src = URL.createObjectURL(blob);
+                        });
+                    } catch (e) { /* keep original image */ }
+                }));
+            }
+        """
+
         // Decodes every image and returns how many are broken (0 = all good).
         const val DECODE_JS = """
             async () => {
@@ -102,6 +137,10 @@ class CompositeCombiner : KoinComponent {
                     "$ORIGIN/index.html",
                     Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD)
                 )
+
+                // Freeze animated traits on their first frame (frame 0).
+                // Must run before the decode check and before preparePage.
+                page.evaluate(FIRST_FRAME_JS)
 
                 // Images must be decoded BEFORE preparePage (it styles based on them).
                 val brokenBefore = (page.evaluate(DECODE_JS) as Number).toInt()
