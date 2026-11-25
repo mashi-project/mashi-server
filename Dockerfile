@@ -24,14 +24,19 @@ RUN ./gradlew installDist --no-daemon
 # ==========================================
 FROM mcr.microsoft.com/playwright/java:v1.59.0-noble AS runtime
 
-# Install native dependencies required for OpenCV/OpenPNP, ffmpeg, and gifsicle for GIF optimization
+# Install native dependencies required for OpenCV/OpenPNP, ffmpeg, gifsicle for GIF optimization,
+# and python3 + Pillow for image -> WebP conversion
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopencv-dev \
     ffmpeg \
     gifsicle \
+    python3 \
+    python3-pil \
     && rm -rf /var/lib/apt/lists/* \
     # Fail the build if gifsicle is too old for --lossy (needs >= 1.92)
-    && gifsicle --help | grep -q -- '--lossy'
+    && gifsicle --help | grep -q -- '--lossy' \
+    # Fail the build if Pillow lacks WebP / animated WebP support
+    && python3 -c "from PIL import features; assert features.check('webp') and features.check('webp_anim'), 'Pillow without animated WebP'"
 
 WORKDIR /app
 

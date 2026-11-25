@@ -3,66 +3,91 @@
 import com.mashiverse.data.models.ImageType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
+import java.nio.file.Files
+import java.util.concurrent.TimeUnit
 
+private const val MAX_WIDTH = 828
+private const val MAX_HEIGHT = 1104
+private const val CONVERT_TIMEOUT_SEC = 120L
+
+/**
+ * Pillow does the conversion. It sniffs the format from the bytes itself (PNG, APNG, GIF, WebP,
+ * animated WebP, ...), so no type detection is needed on the Kotlin side.
+ *
+ * Args: input path, output path, max width, max height.
+ * Never upscales, keeps the aspect ratio, keeps per-frame durations, lossless RGBA.
+ */
+private val PILLOW_SCRIPT = """
+import sys
+from PIL import Image, ImageSequence
+
+src, dst = sys.argv[1], sys.argv[2]
+max_w, max_h = int(sys.argv[3]), int(sys.argv[4])
+
+with Image.open(src) as im:
+    frames, durations = [], []
+    for frame in ImageSequence.Iterator(im):
+        durations.append(int(frame.info.get("duration", 100)))
+        f = frame.convert("RGBA")
+        f.thumbnail((max_w, max_h), Image.LANCZOS)
+        frames.append(f)
+
+frames[0].save(
+    dst,
+    "WEBP",
+    save_all=len(frames) > 1,
+    append_images=frames[1:],
+    duration=durations,
+    loop=0,
+    lossless=True,
+    quality=80,
+    method=4,
+)
+""".trimIndent()
+
+@Suppress("UNUSED_PARAMETER")
 suspend fun convertToWebp(imageBytes: ByteArray, imageType: ImageType): ByteArray = withContext(Dispatchers.IO) {
-    val extension = when (imageType) {
-        ImageType.PNG -> ".png"
-        ImageType.GIF -> ".gif"
-        ImageType.APNG -> ".apng"
-        ImageType.WEBP -> ".webp"
-        else -> ".img"
-    }
+    require(imageBytes.isNotEmpty()) { "Empty image" }
 
-    val tempInputFile = File.createTempFile("img_input_", extension)
-    val tempOutputFile = File.createTempFile("img_output_", ".webp")
+    val tempInputFile = Files.createTempFile("img_input_", ".img").toFile()
+    val tempOutputFile = Files.createTempFile("img_output_", ".webp").toFile()
 
     try {
         tempInputFile.writeBytes(imageBytes)
 
-        val processBuilder = ProcessBuilder(
-            "ffmpeg",
-            "-y",
-            "-i", tempInputFile.absolutePath,
-            // 1. Only handle dimension scaling in the filter chain
-            "-vf", "scale='min(828,iw)':'min(1104,ih)':force_original_aspect_ratio=decrease",
-            // 2. Use libwebp_anim for multi-frame support
-            "-c:v", "libwebp_anim",
-            // 3. Pass transparency pixel format globally via -pix_fmt instead of inside the filter
-            "-pix_fmt", "yuva420p",
-            "-q:v", "85",
-            "-compression_level", "6",
-            "-pred", "mixed",
-            "-loop", "0",
-            tempOutputFile.absolutePath
+        val command = listOf(
+            "python3", "-I", "-c", PILLOW_SCRIPT,
+            tempInputFile.absolutePath,
+            tempOutputFile.absolutePath,
+            MAX_WIDTH.toString(),
+            MAX_HEIGHT.toString()
         )
 
-        val process = processBuilder.start()
+        val process = ProcessBuilder(command)
+            .redirectErrorStream(true)   // one stream to drain, so a full pipe can never deadlock
+            .start()
 
-        // Drain stderr concurrently to avoid deadlock on large logs
-        val errorOutput = StringBuilder()
-        val errorThread = Thread {
-            process.errorStream.bufferedReader().forEachLine { errorOutput.appendLine(it) }
+        val output = StringBuilder()
+        val reader = Thread {
+            process.inputStream.bufferedReader().forEachLine { output.appendLine(it) }
+        }.apply { isDaemon = true; start() }
+
+        if (!process.waitFor(CONVERT_TIMEOUT_SEC, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            throw RuntimeException("Pillow conversion timed out after ${CONVERT_TIMEOUT_SEC}s")
         }
-        errorThread.start()
+        reader.join(5_000)
 
-        val exitCode = process.waitFor()
-        errorThread.join()
-
+        val exitCode = process.exitValue()
         if (exitCode != 0) {
-            throw RuntimeException("FFmpeg conversion failed with exit code $exitCode: $errorOutput")
+            throw RuntimeException("Pillow conversion failed with exit code $exitCode (declared=$imageType): $output")
         }
 
-        return@withContext tempOutputFile.readBytes()
-
+        val result = tempOutputFile.readBytes()
+        check(result.isNotEmpty()) { "Pillow produced an empty file (declared=$imageType): $output" }
+        result
     } finally {
-        try {
-            tempInputFile.delete()
-        } catch (_: Exception) {
-        }
-        try {
-            tempOutputFile.delete()
-        } catch (_: Exception) {
-        }
+        runCatching { tempInputFile.delete() }
+        runCatching { tempOutputFile.delete() }
     }
 }
